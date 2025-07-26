@@ -17,25 +17,65 @@ import VolunteerSelectionScreen from '../screens/VolunteerSelectionScreen';
 import CustomHeader from '../components/CustomHeader';
 
 // Types
-import { RootStackParamList } from '../types/navigation';
+import { AppStackParamList } from '../types/navigation'; // Usa AppStackParamList qui
 
 // Firebase
-import { auth } from '../config/firebaseConfig';
+import { auth } from '../config/firebaseConfig'; // <-- IMPORTANTE: Assicurati che 'auth' sia importato
 
 const Tab = createBottomTabNavigator();
-const Stack = createNativeStackNavigator<RootStackParamList>();
+const Stack = createNativeStackNavigator<AppStackParamList>(); // Usa AppStackParamList per lo stack
 
 // Stack Navigator per Home (include EventDetail e TeamConfiguration)
 function HomeStack() {
   return (
     <Stack.Navigator 
-      screenOptions={{ headerShown: false }}
       initialRouteName="HomeMain"
+      // Rimosso screenOptions={{ headerShown: false }} per poter gestire gli header singolarmente
     >
-      <Stack.Screen name="HomeMain" component={HomeScreen} />
-      <Stack.Screen name="EventDetail" component={EventDetailScreen} />
-      <Stack.Screen name="TeamConfiguration" component={TeamConfigurationScreen} />
-      <Stack.Screen name="VolunteerSelection" component={VolunteerSelectionScreen} />
+      <Stack.Screen 
+        name="HomeMain" 
+        component={HomeScreen} 
+        options={{ headerShown: false }} // HomeScreen userà il CustomHeader del Tab Navigator
+      />
+      
+      {/* EventDetailScreen */}
+      <Stack.Screen 
+        name="EventDetail" 
+        component={EventDetailScreen} 
+        options={{
+          headerShown: true, // MOSTRA L'HEADER QUI
+          title: 'Dettaglio Evento', // Titolo dell'header
+          headerStyle: { backgroundColor: '#E30000' }, // Stile background header
+          headerTintColor: 'white', // Colore freccia back e testo titolo
+          headerTitleStyle: { fontWeight: 'bold' } // Stile testo titolo
+        }}
+      />
+      
+      {/* TeamConfigurationScreen */}
+      <Stack.Screen 
+        name="TeamConfiguration" 
+        component={TeamConfigurationScreen} 
+        options={{
+          headerShown: true,
+          title: 'Configurazione Squadre',
+          headerStyle: { backgroundColor: '#E30000' },
+          headerTintColor: 'white',
+          headerTitleStyle: { fontWeight: 'bold' }
+        }}
+      />
+      
+      {/* VolunteerSelectionScreen */}
+      <Stack.Screen 
+        name="VolunteerSelection" 
+        component={VolunteerSelectionScreen} 
+        options={{
+          headerShown: true,
+          title: 'Selezione Volontari',
+          headerStyle: { backgroundColor: '#E30000' },
+          headerTintColor: 'white',
+          headerTitleStyle: { fontWeight: 'bold' }
+        }}
+      />
     </Stack.Navigator>
   );
 }
@@ -62,8 +102,10 @@ export default function LoggedInTabs() {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        header: () => <CustomHeader onLogout={handleLogout} />,
-        headerShown: true, // Assicurati che sia visibile
+        // Il CustomHeader è gestito solo per la tab "Home"
+        header: route.name === 'Home' ? () => <CustomHeader onLogout={handleLogout} /> : undefined,
+        headerShown: route.name === 'Home' ? true : false, // Mostra header solo per Home (gestito da CustomHeader)
+
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: string;
 
@@ -93,14 +135,35 @@ export default function LoggedInTabs() {
         tabBarActiveTintColor: '#E30000',
         tabBarInactiveTintColor: 'gray',
         tabBarStyle: {
-          paddingBottom: Platform.OS === 'ios' ? 25 : 10, // Spazio extra per iPhone
+          paddingBottom: Platform.OS === 'ios' ? 25 : 10,
           height: Platform.OS === 'ios' ? 85 : 60,
         },
       })}
     >
       <Tab.Screen name="Home" component={HomeStack} />
-      <Tab.Screen name="Interventi" component={InterventiScreen} />
-      <Tab.Screen name="Maps" component={MapsScreen} />
+      {/* Per Interventi e Maps, usiamo l'header di sistema con titolo standard */}
+      <Tab.Screen 
+        name="Interventi" 
+        component={InterventiScreen} 
+        options={{ 
+          headerShown: true, 
+          title: 'Interventi',
+          headerStyle: { backgroundColor: 'white' },
+          headerTintColor: '#E30000',
+          headerTitleStyle: { fontWeight: 'bold' }
+        }}
+      />
+      <Tab.Screen 
+        name="Maps" 
+        component={MapsScreen} 
+        options={{ 
+          headerShown: true, 
+          title: 'Mappa',
+          headerStyle: { backgroundColor: 'white' },
+          headerTintColor: '#E30000',
+          headerTitleStyle: { fontWeight: 'bold' }
+        }}
+      />
     </Tab.Navigator>
   );
 }

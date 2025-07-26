@@ -1,5 +1,5 @@
 // src/screens/HomeScreen.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // <--- AGGIUNTO: useRef
 import {
   View,
   Text,
@@ -11,17 +11,20 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
+  Animated, // <--- AGGIUNTO: Animated per animazioni
+  Vibration // <--- AGGIUNTO: Vibration (alternativa a Haptics se non vuoi installare un'altra lib)
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics'; // <--- AGGIUNTO: Importa expo-haptics
 
 // Services
 import { getEvents, createEvent, Event } from '../services/eventService';
 
-// Context - import separati per debug
+// Context
 import { useAuth } from '../context/AuthContext';
-import { usePermissions } from '../context/AuthContext';
+import { usePermissions } from '../context/AuthContext'; // Mantieni usePermissions per consistenza, anche se potresti destrutturare da useAuth
 import { AdminOnly } from '../context/AuthContext';
 
 // Types
@@ -29,14 +32,8 @@ import { AppNavigation } from '../types/navigation';
 
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation<AppNavigation>();
-  const { currentUser } = useAuth();
-  const { 
-    isAdmin, 
-    canCreateEvents, 
-    squadraNome, 
-    nome, 
-    cognome 
-  } = usePermissions();
+  const { currentUser, isAdmin, loading: authLoading } = useAuth();
+  const { nome, cognome } = usePermissions(); // Mantenuto per chiarezza, come nel tuo codice precedente
 
   // Stati componente
   const [events, setEvents] = useState<Event[]>([]);
@@ -48,6 +45,12 @@ const HomeScreen: React.FC = () => {
   const [nomeEvento, setNomeEvento] = useState('');
   const [localita, setLocalita] = useState('');
   const [creating, setCreating] = useState(false);
+
+  // --- AGGIUNTO: Stati e Ref per Pressione Prolungata e Animazione ---
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+  const pressProgress = useRef(new Animated.Value(0)).current; // Per l'animazione radiale/progress bar
+  const [isPressingEventId, setIsPressingEventId] = useState<string | null>(null); // Traccia quale evento è in pressione
+  // --- FINE AGGIUNTO ---
 
   // Carica eventi all'avvio e quando torna focus
   const loadEvents = async (showLoader = true) => {
@@ -81,7 +84,14 @@ const HomeScreen: React.FC = () => {
 
   // Creazione nuovo evento (solo admin)
   const handleCreateEvent = async () => {
-    if (!canCreateEvents) {
+    // Aggiunto il controllo per il loading del contesto di autenticazione
+    if (authLoading) { // Se l'autenticazione è ancora in corso, non permettere l'azione
+      Alert.alert('Attendere', 'Caricamento delle informazioni utente in corso. Riprova tra un istante.');
+      return;
+    }
+
+    // Qui usi direttamente isAdmin che viene da useAuth
+    if (!isAdmin) { 
       Alert.alert('Accesso Negato', 'Non hai i permessi per creare eventi');
       return;
     }
@@ -97,7 +107,7 @@ const HomeScreen: React.FC = () => {
       await createEvent({
         nomeEvento: nomeEvento.trim(),
         localita: localita.trim(),
-        createdBy: currentUser?.email || 'Unknown'
+        createdBy: currentUser?.email || 'Unknown' 
       });
 
       console.log('✅ Evento creato con successo');
@@ -120,61 +130,133 @@ const HomeScreen: React.FC = () => {
     }
   };
 
-  // Navigazione dettaglio evento
+  // --- AGGIUNTO: Logica per Pressione Prolungata ---
+  const handlePressIn = (eventItem: Event) => {
+    if (!isAdmin) return; 
+
+    setIsPressingEventId(eventItem.id); // Inizia a tracciare l'evento in pressione
+    pressProgress.setValue(0); 
+    Animated.timing(pressProgress, {
+      toValue: 1,
+      duration: 3000, 
+      useNativeDriver: false, 
+    }).start();
+
+    longPressTimer.current = setTimeout(() => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); 
+      setIsPressingEventId(null); 
+      
+      navigation.navigate('EventDetail', { 
+        eventId: eventItem.id, 
+        event: eventItem,
+        initialMode: 'edit' 
+      });
+      pressProgress.setValue(0); 
+    }, 3000); 
+  };
+
+  const handlePressOut = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    Animated.timing(pressProgress, {
+      toValue: 0,
+      duration: 200, 
+      useNativeDriver: false,
+    }).start(() => setIsPressingEventId(null)); 
+  };
+
+  // --- CORREZIONE: Interpola il colore dello sfondo per l'animazione ---
+  // Aggiunto un controllo per assicurare che l'interpolazione restituisca solo stringhe di colore
+  const animatedBackgroundColor = pressProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['white', '#FFDDC2'] // Da bianco a un arancione chiaro
+  }) as Animated.AnimatedInterpolation<string>; // <--- AGGIUNTO: Cast esplicito per il tipo
+
+  // --- FINE AGGIUNTO: Logica per Pressione Prolungata ---
+
+  // Navigazione dettaglio evento (modificata per gestione onLongPress)
   const navigateToDetail = (event: Event) => {
+    // Se è Admin e un evento è in pressione (per longPress), non navigare normalmente per evitare conflitti
+    if (isAdmin && isPressingEventId) {
+        return; 
+    }
+    // Naviga normalmente in visualizzazione
     navigation.navigate('EventDetail', { 
-      eventId: event.id, 
-      event: event 
+        eventId: event.id, 
+        event: event,
+        initialMode: 'view' 
     });
   };
 
-  // Render item evento
-  const renderEventItem = ({ item }: { item: Event }) => (
-    <TouchableOpacity
-      style={styles.eventCard}
-      onPress={() => navigateToDetail(item)}
-    >
-      <View style={styles.eventHeader}>
-        <Text style={styles.eventName}>{item.nomeEvento}</Text>
-        <MaterialCommunityIcons 
-          name="chevron-right" 
-          size={24} 
-          color="#E30000" 
-        />
-      </View>
-      
-      <View style={styles.eventDetails}>
-        <View style={styles.eventDetail}>
-          <MaterialCommunityIcons 
-            name="map-marker" 
-            size={16} 
-            color="#666" 
-          />
-          <Text style={styles.eventText}>{item.localita}</Text>
-        </View>
-        
-        {item.dataEvento && (
-          <View style={styles.eventDetail}>
+  // Render item evento (modificato per Pressione Prolungata)
+  const renderEventItem = ({ item }: { item: Event }) => {
+    const isThisEventBeingPressed = isPressingEventId === item.id;
+    
+    return (
+      // CORREZIONE: Usa Animated.View per applicare stili animati
+      // L'Animated.View riceve gli stili animati
+      <Animated.View 
+        style={[
+            styles.eventCard,
+            isAdmin && isThisEventBeingPressed && { backgroundColor: animatedBackgroundColor }, 
+        ]}
+      >
+        {/* TouchableOpacity gestisce i press event e occupa tutto lo spazio */}
+        <TouchableOpacity 
+            onLongPress={() => {}} // Necessario per attivare onLongPress (anche se gestito da PressIn)
+            onPressIn={() => handlePressIn(item)} 
+            onPressOut={handlePressOut} 
+            onPress={() => navigateToDetail(item)} 
+            activeOpacity={0.8}
+            style={styles.eventCardInnerTouchable} // <--- NUOVO STILE: Per riempire il container
+        >
+          {/* Contenuto della scheda evento */}
+          <View style={styles.eventHeader}>
+            <Text style={styles.eventName}>{item.nomeEvento}</Text>
             <MaterialCommunityIcons 
-              name="calendar" 
-              size={16} 
-              color="#666" 
+              name="chevron-right" 
+              size={24} 
+              color="#E30000" 
             />
-            <Text style={styles.eventText}>{item.dataEvento}</Text>
           </View>
-        )}
-        
-        {item.livello && (
-          <View style={[
-            styles.levelBadge,
-            { backgroundColor: getLevelColor(item.livello) }
-          ]}>
-            <Text style={styles.levelText}>{item.livello}</Text>
+          
+          <View style={styles.eventDetails}>
+            <View style={styles.eventDetail}>
+              <MaterialCommunityIcons 
+                name="map-marker" 
+                size={16} 
+                color="#666" 
+              />
+              <Text style={styles.eventText}>{item.localita}</Text>
+            </View>
+            
+            {item.dataEvento && (
+              <View style={styles.eventDetail}>
+                <MaterialCommunityIcons 
+                  name="calendar" 
+                  size={16} 
+                  color="#666" 
+                />
+                <Text style={styles.eventText}>{item.dataEvento}</Text>
+              </View>
+            )}
+            
+            {item.livello && (
+              <View style={[
+                styles.levelBadge,
+                { backgroundColor: getLevelColor(item.livello) }
+              ]}>
+                <Text style={styles.levelText}>{item.livello}</Text>
+              </View>
+            )}
           </View>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
+  // Fine renderEventItem
 
   // Colore badge livello
   const getLevelColor = (level: string) => {
@@ -186,12 +268,14 @@ const HomeScreen: React.FC = () => {
     }
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#E30000" />
-          <Text style={styles.loadingText}>Caricamento eventi...</Text>
+          <Text style={styles.loadingText}>
+            {authLoading ? 'Caricamento utente...' : 'Caricamento eventi...'}
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -207,7 +291,8 @@ const HomeScreen: React.FC = () => {
           </Text>
           <Text style={styles.roleText}>
             {isAdmin ? '👑 Responsabile' : '🚑 Volontario'} 
-            {squadraNome && ` - ${squadraNome}`}
+            {/* squadraNome non è presente in usePermissions nel codice fornito */}
+            {/* {squadraNome && ` - ${squadraNome}`} */}
           </Text>
         </View>
         
@@ -252,6 +337,7 @@ const HomeScreen: React.FC = () => {
             renderItem={renderEventItem}
             keyExtractor={(item) => item.id}
             showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContentContainer} 
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -361,6 +447,9 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
   },
+  listContentContainer: { 
+    paddingBottom: 20,
+  },
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
@@ -383,8 +472,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   eventCard: {
-    backgroundColor: 'white',
-    padding: 16,
+    backgroundColor: 'white', 
     marginBottom: 12,
     borderRadius: 8,
     shadowColor: '#000',
@@ -392,6 +480,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    overflow: 'hidden', 
+  },
+  // NUOVO STILE per TouchableOpacity interno
+  eventCardInnerTouchable: {
+    flex: 1, 
+    padding: 16, // Aggiunto padding qui per contenere il contenuto della card
   },
   eventHeader: {
     flexDirection: 'row',

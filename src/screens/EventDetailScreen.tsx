@@ -17,7 +17,15 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 
 // Services & Context
-import { updateEvent, Event } from '../services/eventService';
+import { 
+  updateEvent, 
+  Event, 
+  setEventoAttivo, 
+  getAssegnazioniEvento, 
+  getSquadreConAssegnazioni,
+  configuraSquadreStandard,
+  EventoAssegnazione
+} from '../services/eventService';
 import { useAuth, usePermissions, AdminOnly } from '../context/AuthContext';
 
 // Types
@@ -44,6 +52,11 @@ const EventDetailScreen: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // NUOVO: Stati per gestione volontari
+  const [assegnazioni, setAssegnazioni] = useState<EventoAssegnazione[]>([]);
+  const [squadreRaggruppate, setSquadreRaggruppate] = useState<Record<string, EventoAssegnazione[]>>({});
+  const [loadingAssegnazioni, setLoadingAssegnazioni] = useState(false);
+
   // Stati form modifica
   const [nomeEvento, setNomeEvento] = useState('');
   const [localita, setLocalita] = useState('');
@@ -64,8 +77,36 @@ const EventDetailScreen: React.FC = () => {
       setOraFine(event.oraFine || '');
       setLivello(event.livello || 'Low');
       setNote(event.note || '');
+
+      // NUOVO: Carica assegnazioni se admin
+      if (isAdmin) {
+        loadAssegnazioni();
+      }
     }
-  }, [event]);
+  }, [event, isAdmin]);
+
+  // NUOVO: Carica assegnazioni volontari
+  const loadAssegnazioni = async () => {
+    try {
+      setLoadingAssegnazioni(true);
+      
+      const [assegnazioniData, squadreData] = await Promise.all([
+        getAssegnazioniEvento(eventId),
+        getSquadreConAssegnazioni(eventId)
+      ]);
+
+      setAssegnazioni(assegnazioniData);
+      setSquadreRaggruppate(squadreData);
+      
+      console.log('👥 Assegnazioni caricate:', assegnazioniData.length);
+      console.log('🏢 Squadre raggruppate:', Object.keys(squadreData).length);
+
+    } catch (error) {
+      console.error('❌ Errore caricamento assegnazioni:', error);
+    } finally {
+      setLoadingAssegnazioni(false);
+    }
+  };
 
   // Avvia modifica (solo admin)
   const startEditing = () => {
@@ -140,6 +181,69 @@ const EventDetailScreen: React.FC = () => {
     }
   };
 
+  // NUOVO: Attiva/Disattiva evento
+  const toggleEventoAttivo = async () => {
+    if (!canModifyEvents) {
+      Alert.alert('Accesso Negato', 'Non hai i permessi per gestire eventi');
+      return;
+    }
+
+    const azione = event?.eventoAttivo ? 'disattivare' : 'attivare';
+    
+    Alert.alert(
+      `Conferma ${azione.charAt(0).toUpperCase() + azione.slice(1)}`,
+      `Sei sicuro di voler ${azione} questo evento?${!event?.eventoAttivo ? '\n\nQuesto sarà l\'unico evento attivo.' : ''}`,
+      [
+        { text: 'Annulla', style: 'cancel' },
+        { 
+          text: 'Conferma', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (!event?.eventoAttivo) {
+                await setEventoAttivo(eventId);
+                setEvent(prev => prev ? { ...prev, eventoAttivo: true } : null);
+                Alert.alert('✅ Evento Attivato', 'L\'evento è ora attivo per tutti i volontari');
+              } else {
+                // Per disattivare, aggiorna solo questo evento
+                await updateEvent(eventId, { eventoAttivo: false } as any);
+                setEvent(prev => prev ? { ...prev, eventoAttivo: false } : null);
+                Alert.alert('📴 Evento Disattivato', 'L\'evento non è più attivo');
+              }
+            } catch (error) {
+              console.error('❌ Errore toggle evento:', error);
+              Alert.alert('Errore', `Impossibile ${azione} l'evento`);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // NUOVO: Configura squadre standard
+  const handleConfiguraSquadre = async () => {
+    Alert.alert(
+      'Configura Squadre',
+      'Vuoi configurare le squadre standard SAP-001, SAP-002, SAP-003?',
+      [
+        { text: 'Annulla', style: 'cancel' },
+        { 
+          text: 'Configura', 
+          onPress: async () => {
+            try {
+              await configuraSquadreStandard(eventId, 3);
+              Alert.alert('✅ Squadre Configurate', 'Squadre SAP-001, SAP-002, SAP-003 create');
+              await loadAssegnazioni();
+            } catch (error) {
+              console.error('❌ Errore configurazione squadre:', error);
+              Alert.alert('Errore', 'Impossibile configurare squadre');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   // Navigazione configurazione squadre (solo admin)
   const navigateToTeamConfig = () => {
     if (!canModifyEvents) {
@@ -147,6 +251,15 @@ const EventDetailScreen: React.FC = () => {
       return;
     }
     navigation.navigate('TeamConfiguration', { eventId });
+  };
+
+  // NUOVO: Navigazione selezione volontari
+  const navigateToVolunteerSelection = (squadraId?: string) => {
+    if (!canModifyEvents) {
+      Alert.alert('Accesso Negato', 'Funzionalità riservata ai responsabili');
+      return;
+    }
+    navigation.navigate('VolunteerSelection', { eventId, teamId: squadraId });
   };
 
   // Colore livello
@@ -157,6 +270,115 @@ const EventDetailScreen: React.FC = () => {
       case 'High': return '#E30000';
       default: return '#6C757D';
     }
+  };
+
+  // NUOVO: Render sezione gestione volontari
+  const renderGestioneVolontari = () => {
+    if (!isAdmin) return null;
+
+    return (
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>👥 Gestione Volontari</Text>
+          <View style={styles.sectionActions}>
+            <TouchableOpacity
+              style={[styles.actionButton, event?.eventoAttivo ? styles.disableButton : styles.activateButton]}
+              onPress={toggleEventoAttivo}
+            >
+              <MaterialCommunityIcons 
+                name={event?.eventoAttivo ? "pause-circle" : "play-circle"} 
+                size={16} 
+                color="white" 
+              />
+              <Text style={styles.actionButtonText}>
+                {event?.eventoAttivo ? 'Disattiva' : 'Attiva'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {event?.eventoAttivo && (
+          <View style={styles.statusBanner}>
+            <MaterialCommunityIcons name="circle" size={12} color="#28A745" />
+            <Text style={styles.statusText}>Evento Attivo - Visibile ai volontari</Text>
+          </View>
+        )}
+
+        {loadingAssegnazioni ? (
+          <View style={styles.loadingAssegnazioni}>
+            <ActivityIndicator size="small" color="#E30000" />
+            <Text style={styles.loadingText}>Caricamento assegnazioni...</Text>
+          </View>
+        ) : (
+          <>
+            {assegnazioni.length === 0 ? (
+              <View style={styles.noAssegnazioni}>
+                <MaterialCommunityIcons name="account-off" size={48} color="#CCC" />
+                <Text style={styles.noAssegnazioniText}>Nessun volontario assegnato</Text>
+                <TouchableOpacity
+                  style={styles.configuraButton}
+                  onPress={handleConfiguraSquadre}
+                >
+                  <Text style={styles.configuraButtonText}>Configura Squadre</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.assegnazioniContainer}>
+                <View style={styles.assegnazioniHeader}>
+                  <Text style={styles.assegnazioniTitle}>
+                    {assegnazioni.length} volontari assegnati in {Object.keys(squadreRaggruppate).length} squadre
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.addVolunteerButton}
+                    onPress={() => navigateToVolunteerSelection()}
+                  >
+                    <MaterialCommunityIcons name="account-plus" size={16} color="#E30000" />
+                    <Text style={styles.addVolunteerText}>Aggiungi</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {Object.entries(squadreRaggruppate).map(([squadraId, membri]) => (
+                  <View key={squadraId} style={styles.squadraCard}>
+                    <View style={styles.squadraHeader}>
+                      <View style={styles.squadraInfo}>
+                        <MaterialCommunityIcons name="account-group" size={20} color="#E30000" />
+                        <Text style={styles.squadraNome}>{squadraId}</Text>
+                        <View style={styles.squadraBadge}>
+                          <Text style={styles.squadraBadgeText}>{membri.length}</Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.editSquadraButton}
+                        onPress={() => navigateToVolunteerSelection(squadraId)}
+                      >
+                        <MaterialCommunityIcons name="pencil" size={16} color="#666" />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.membriContainer}>
+                      {membri.map((membro) => (
+                        <View key={membro.id} style={styles.membroCard}>
+                          <View style={styles.membroInfo}>
+                            <Text style={styles.membroNome}>{membro.userName}</Text>
+                            <Text style={styles.membroEmail}>{membro.userEmail}</Text>
+                          </View>
+                          {membro.ruolo === 'coordinatore' && (
+                            <View style={styles.coordinatoreBadge}>
+                              <MaterialCommunityIcons name="star" size={12} color="#FFA500" />
+                              <Text style={styles.coordinatoreText}>Coord</Text>
+                            </View>
+                          )}
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </>
+        )}
+      </View>
+    );
   };
 
   if (!event) {
@@ -178,6 +400,13 @@ const EventDetailScreen: React.FC = () => {
       >
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           
+          {/* DEBUG INFO BANNER */}
+          <View style={styles.debugBanner}>
+            <Text style={styles.debugText}>
+              📁 File: EventDetailScreen.tsx | 🔧 {isAdmin ? 'Admin Debug Mode' : 'User Debug Mode'}
+            </Text>
+          </View>
+
           {/* Header con permessi */}
           <View style={styles.permissionsBanner}>
             <Text style={styles.permissionsText}>
@@ -310,19 +539,22 @@ const EventDetailScreen: React.FC = () => {
             </View>
           </View>
 
+          {/* NUOVO: Sezione gestione volontari - solo admin */}
+          {renderGestioneVolontari()}
+
           {/* Sezione configurazione squadre - solo admin */}
           <AdminOnly>
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>👥 Configurazione</Text>
+              <Text style={styles.sectionTitle}>⚙️ Configurazione Avanzata</Text>
               
               <TouchableOpacity
                 style={styles.configButton}
                 onPress={navigateToTeamConfig}
               >
-                <MaterialCommunityIcons name="account-group" size={24} color="#E30000" />
+                <MaterialCommunityIcons name="cog" size={24} color="#E30000" />
                 <View style={styles.configButtonContent}>
-                  <Text style={styles.configButtonTitle}>Gestisci Squadre e HP</Text>
-                  <Text style={styles.configButtonSubtitle}>Configura SAP e Health Points</Text>
+                  <Text style={styles.configButtonTitle}>Configurazioni Tecniche</Text>
+                  <Text style={styles.configButtonSubtitle}>Health Points e impostazioni avanzate</Text>
                 </View>
                 <MaterialCommunityIcons name="chevron-right" size={24} color="#999" />
               </TouchableOpacity>
@@ -344,7 +576,7 @@ const EventDetailScreen: React.FC = () => {
 
         </ScrollView>
 
-        {/* Pulsanti azione - solo admin */}
+        {/* Pulsanti azione - solo admin - FIXED STYLING */}
         <AdminOnly>
           <View style={styles.actionButtons}>
             {isEditing ? (
@@ -373,9 +605,12 @@ const EventDetailScreen: React.FC = () => {
               <TouchableOpacity
                 style={[styles.button, styles.editButton]}
                 onPress={startEditing}
+                activeOpacity={0.8}
               >
-                <MaterialCommunityIcons name="pencil" size={20} color="white" />
-                <Text style={styles.editButtonText}>Modifica Evento</Text>
+                <View style={styles.editButtonContent}>
+                  <MaterialCommunityIcons name="pencil" size={20} color="white" />
+                  <Text style={styles.editButtonText}>Modifica Evento</Text>
+                </View>
               </TouchableOpacity>
             )}
           </View>
@@ -402,6 +637,20 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  // DEBUG BANNER - NUOVO
+  debugBanner: {
+    backgroundColor: '#FFF9C4',
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F57F17',
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#F57F17',
+    textAlign: 'center',
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
   permissionsBanner: {
     backgroundColor: '#E8F4FD',
@@ -432,6 +681,177 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 16,
   },
+  // NUOVO: Styling per gestione volontari
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  sectionActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 4,
+  },
+  activateButton: {
+    backgroundColor: '#28A745',
+  },
+  disableButton: {
+    backgroundColor: '#666',
+  },
+  actionButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  statusBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FFF4',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    gap: 8,
+  },
+  statusText: {
+    color: '#28A745',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  loadingAssegnazioni: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    gap: 8,
+  },
+  noAssegnazioni: {
+    alignItems: 'center',
+    padding: 32,
+    gap: 16,
+  },
+  noAssegnazioniText: {
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
+  },
+  configuraButton: {
+    backgroundColor: '#E30000',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  configuraButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  assegnazioniContainer: {
+    gap: 16,
+  },
+  assegnazioniHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  assegnazioniTitle: {
+    fontSize: 14,
+    color: '#666',
+    flex: 1,
+  },
+  addVolunteerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  addVolunteerText: {
+    color: '#E30000',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  squadraCard: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#E30000',
+  },
+  squadraHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  squadraInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  squadraNome: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  squadraBadge: {
+    backgroundColor: '#E30000',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  squadraBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  editSquadraButton: {
+    padding: 4,
+  },
+  membriContainer: {
+    gap: 8,
+  },
+  membroCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    padding: 12,
+    borderRadius: 6,
+  },
+  membroInfo: {
+    flex: 1,
+  },
+  membroNome: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  membroEmail: {
+    fontSize: 12,
+    color: '#666',
+  },
+  coordinatoreBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3CD',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  coordinatoreText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#FFA500',
+  },
+  // Styling esistente
   field: {
     marginBottom: 16,
   },
@@ -524,6 +944,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderTopWidth: 1,
     borderTopColor: '#E0E0E0',
+    minHeight: 80,
   },
   editingButtons: {
     flexDirection: 'row',
@@ -531,20 +952,27 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    padding: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: 50,
   },
   editButton: {
     backgroundColor: '#E30000',
+  },
+  editButtonContent: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
   },
   editButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
+    textAlign: 'center',
   },
   saveButton: {
     backgroundColor: '#28A745',

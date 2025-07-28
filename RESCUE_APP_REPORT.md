@@ -1,5 +1,5 @@
 # 📊 RESCUE APP - REPORT AUTOMATICO
-**Data:** 26/07/2025, 14:32:36
+**Data:** 28/07/2025, 20:56:33
 **Directory:** C:\Users\Vincb\Desktop\CRI-Rescue-App
 
 ## 📁 STRUTTURA FILE
@@ -21,6 +21,7 @@
 ⚙️ package.json
 ⚛️ project_scanner.js
 📄 Report Stato Progetto - CRI Rescue App_20250726.pdf
+📝 RESCUE_APP_REPORT.md
 📁 src/
   📁 components/
     ⚛️ CustomHeader.tsx
@@ -67,6 +68,7 @@
 - **react-native-safe-area-context:** ^5.4.0
 - **react-native-screens:** ~4.11.1
 - **react-native-web:** ^0.20.0
+- **expo-haptics:** ~14.1.4
 
 ## 📋 FILE PRINCIPALI
 ### ❌ app/(tabs)/index.tsx - NON TROVATO

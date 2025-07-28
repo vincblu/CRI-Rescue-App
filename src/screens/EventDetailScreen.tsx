@@ -19,6 +19,7 @@ import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 // Services & Context
 import { 
   updateEvent, 
+  deleteEvent, // NUOVO: Import deleteEvent
   Event, 
   setEventoAttivo, 
   getAssegnazioniEvento, 
@@ -51,6 +52,7 @@ const EventDetailScreen: React.FC = () => {
   const [event, setEvent] = useState<Event | null>(initialEvent || null);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false); // NUOVO: Stato per cancellazione
 
   // NUOVO: Stati per gestione volontari
   const [assegnazioni, setAssegnazioni] = useState<EventoAssegnazione[]>([]);
@@ -178,6 +180,90 @@ const EventDetailScreen: React.FC = () => {
       Alert.alert('Errore', 'Impossibile salvare le modifiche');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // NUOVO: Funzione per cancellare evento
+  const handleDeleteEvent = () => {
+    if (!canModifyEvents) {
+      Alert.alert('Accesso Negato', 'Non hai i permessi per cancellare questo evento');
+      return;
+    }
+
+    // Verifica se ci sono volontari assegnati
+    if (assegnazioni.length > 0) {
+      Alert.alert(
+        '⚠️ Attenzione',
+        `Ci sono ${assegnazioni.length} volontari assegnati a questo evento.\n\nPer continuare con la cancellazione, dovrai prima rimuovere tutte le assegnazioni.`,
+        [
+          { text: 'Annulla', style: 'cancel' },
+          { 
+            text: 'Cancella Comunque', 
+            style: 'destructive',
+            onPress: () => confirmDeleteEvent() 
+          }
+        ]
+      );
+      return;
+    }
+
+    confirmDeleteEvent();
+  };
+
+  // NUOVO: Conferma cancellazione evento
+  const confirmDeleteEvent = () => {
+    Alert.alert(
+      '🗑️ CANCELLA EVENTO',
+      `Sei SICURO di voler cancellare definitivamente l'evento:\n\n"${event?.nomeEvento}"\n\n⚠️ QUESTA AZIONE NON PUÒ ESSERE ANNULLATA!\n\n• Tutte le configurazioni verranno perse\n• Le assegnazioni volontari verranno rimosse\n• La cronologia dell'evento verrà eliminata`,
+      [
+        {
+          text: 'Annulla',
+          style: 'cancel',
+        },
+        {
+          text: '🗑️ CANCELLA DEFINITIVAMENTE',
+          style: 'destructive',
+          onPress: executeDeleteEvent,
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  // NUOVO: Esegui cancellazione evento
+  const executeDeleteEvent = async () => {
+    try {
+      setDeleting(true);
+      console.log('🗑️ Cancellazione evento:', eventId);
+
+      await deleteEvent(eventId);
+
+      console.log('✅ Evento cancellato con successo');
+      
+      // Torna alla home con messaggio di successo
+      Alert.alert(
+        '✅ Evento Cancellato',
+        `L'evento "${event?.nomeEvento}" è stato cancellato definitivamente.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // Torna alla home e forza refresh
+              navigation.navigate('HomeMain');
+            },
+          },
+        ]
+      );
+
+    } catch (error) {
+      console.error('❌ Errore cancellazione evento:', error);
+      Alert.alert(
+        'Errore Cancellazione',
+        'Impossibile cancellare l\'evento. Riprova più tardi.',
+        [{ text: 'OK', style: 'default' }]
+      );
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -561,6 +647,39 @@ const EventDetailScreen: React.FC = () => {
             </View>
           </AdminOnly>
 
+          {/* NUOVO: Sezione Zona Pericolosa - CANCELLAZIONE EVENTO */}
+          <AdminOnly>
+            <View style={[styles.section, styles.dangerZone]}>
+              <View style={styles.dangerZoneHeader}>
+                <MaterialCommunityIcons name="alert-circle" size={24} color="#E30000" />
+                <Text style={styles.dangerZoneTitle}>⚠️ Zona Pericolosa</Text>
+              </View>
+              <Text style={styles.dangerZoneSubtitle}>
+                Azioni irreversibili che non possono essere annullate
+              </Text>
+              
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={handleDeleteEvent}
+                disabled={deleting}
+                activeOpacity={0.8}
+              >
+                {deleting ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="delete-forever" size={20} color="white" />
+                    <Text style={styles.deleteButtonText}>CANCELLA EVENTO DEFINITIVAMENTE</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              
+              <Text style={styles.deleteWarning}>
+                ⚠️ Questa azione cancellerà permanentemente l'evento, tutte le configurazioni e le assegnazioni volontari.
+              </Text>
+            </View>
+          </AdminOnly>
+
           {/* Informazioni evento */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>ℹ️ Dettagli Tecnici</Text>
@@ -680,6 +799,52 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 16,
+  },
+  // NUOVO: Styling zona pericolosa
+  dangerZone: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#E30000',
+    backgroundColor: '#FFF8F8',
+  },
+  dangerZoneHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
+  dangerZoneTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#E30000',
+  },
+  dangerZoneSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 16,
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E30000',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginVertical: 8,
+    gap: 8,
+  },
+  deleteButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  deleteWarning: {
+    fontSize: 12,
+    color: '#E30000',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 16,
   },
   // NUOVO: Styling per gestione volontari
   sectionHeader: {

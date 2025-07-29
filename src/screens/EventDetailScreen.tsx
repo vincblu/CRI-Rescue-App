@@ -1,25 +1,24 @@
-// src/screens/EventDetailScreen.tsx
+// src/screens/EventDetailScreen.tsx - OTTIMIZZATO PER TASTIERA
 import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   SafeAreaView,
-  ScrollView,
   TextInput,
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
+import KeyboardAwareWrapper from '../components/KeyboardAwareWrapper'; // IMPORTA WRAPPER
 
 // Services & Context
 import { 
   updateEvent, 
-  deleteEvent, // NUOVO: Import deleteEvent
+  deleteEvent,
   Event, 
   setEventoAttivo, 
   getAssegnazioniEvento, 
@@ -52,9 +51,9 @@ const EventDetailScreen: React.FC = () => {
   const [event, setEvent] = useState<Event | null>(initialEvent || null);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false); // NUOVO: Stato per cancellazione
+  const [deleting, setDeleting] = useState(false);
 
-  // NUOVO: Stati per gestione volontari
+  // Stati per gestione volontari
   const [assegnazioni, setAssegnazioni] = useState<EventoAssegnazione[]>([]);
   const [squadreRaggruppate, setSquadreRaggruppate] = useState<Record<string, EventoAssegnazione[]>>({});
   const [loadingAssegnazioni, setLoadingAssegnazioni] = useState(false);
@@ -80,14 +79,13 @@ const EventDetailScreen: React.FC = () => {
       setLivello(event.livello || 'Low');
       setNote(event.note || '');
 
-      // NUOVO: Carica assegnazioni se admin
       if (isAdmin) {
         loadAssegnazioni();
       }
     }
   }, [event, isAdmin]);
 
-  // NUOVO: Carica assegnazioni volontari
+  // Carica assegnazioni volontari
   const loadAssegnazioni = async () => {
     try {
       setLoadingAssegnazioni(true);
@@ -101,7 +99,6 @@ const EventDetailScreen: React.FC = () => {
       setSquadreRaggruppate(squadreData);
       
       console.log('👥 Assegnazioni caricate:', assegnazioniData.length);
-      console.log('🏢 Squadre raggruppate:', Object.keys(squadreData).length);
 
     } catch (error) {
       console.error('❌ Errore caricamento assegnazioni:', error);
@@ -123,7 +120,6 @@ const EventDetailScreen: React.FC = () => {
   const cancelEditing = () => {
     if (!event) return;
     
-    // Ripristina valori originali
     setNomeEvento(event.nomeEvento || '');
     setLocalita(event.localita || '');
     setDataEvento(event.dataEvento || '');
@@ -164,7 +160,6 @@ const EventDetailScreen: React.FC = () => {
 
       await updateEvent(eventId, updateData);
 
-      // Aggiorna stato locale
       const updatedEvent = {
         ...event!,
         ...updateData
@@ -183,14 +178,13 @@ const EventDetailScreen: React.FC = () => {
     }
   };
 
-  // NUOVO: Funzione per cancellare evento
+  // Funzione per cancellare evento
   const handleDeleteEvent = () => {
     if (!canModifyEvents) {
       Alert.alert('Accesso Negato', 'Non hai i permessi per cancellare questo evento');
       return;
     }
 
-    // Verifica se ci sono volontari assegnati
     if (assegnazioni.length > 0) {
       Alert.alert(
         '⚠️ Attenzione',
@@ -210,27 +204,20 @@ const EventDetailScreen: React.FC = () => {
     confirmDeleteEvent();
   };
 
-  // NUOVO: Conferma cancellazione evento
+  // Conferma cancellazione evento
   const confirmDeleteEvent = () => {
     Alert.alert(
       '🗑️ CANCELLA EVENTO',
-      `Sei SICURO di voler cancellare definitivamente l'evento:\n\n"${event?.nomeEvento}"\n\n⚠️ QUESTA AZIONE NON PUÒ ESSERE ANNULLATA!\n\n• Tutte le configurazioni verranno perse\n• Le assegnazioni volontari verranno rimosse\n• La cronologia dell'evento verrà eliminata`,
+      `Sei SICURO di voler cancellare definitivamente l'evento:\n\n"${event?.nomeEvento}"\n\n⚠️ QUESTA AZIONE NON PUÒ ESSERE ANNULLATA!`,
       [
-        {
-          text: 'Annulla',
-          style: 'cancel',
-        },
-        {
-          text: '🗑️ CANCELLA DEFINITIVAMENTE',
-          style: 'destructive',
-          onPress: executeDeleteEvent,
-        },
+        { text: 'Annulla', style: 'cancel' },
+        { text: '🗑️ CANCELLA DEFINITIVAMENTE', style: 'destructive', onPress: executeDeleteEvent }
       ],
       { cancelable: true }
     );
   };
 
-  // NUOVO: Esegui cancellazione evento
+  // Esegui cancellazione evento
   const executeDeleteEvent = async () => {
     try {
       setDeleting(true);
@@ -240,112 +227,27 @@ const EventDetailScreen: React.FC = () => {
 
       console.log('✅ Evento cancellato con successo');
       
-      // Torna alla home con messaggio di successo
       Alert.alert(
         '✅ Evento Cancellato',
         `L'evento "${event?.nomeEvento}" è stato cancellato definitivamente.`,
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              // Torna alla home e forza refresh
-              navigation.navigate('HomeMain');
-            },
-          },
-        ]
+        [{ text: 'OK', onPress: () => navigation.navigate('HomeMain') }]
       );
 
     } catch (error) {
       console.error('❌ Errore cancellazione evento:', error);
-      Alert.alert(
-        'Errore Cancellazione',
-        'Impossibile cancellare l\'evento. Riprova più tardi.',
-        [{ text: 'OK', style: 'default' }]
-      );
+      Alert.alert('Errore Cancellazione', 'Impossibile cancellare l\'evento. Riprova più tardi.');
     } finally {
       setDeleting(false);
     }
   };
 
-  // NUOVO: Attiva/Disattiva evento
-  const toggleEventoAttivo = async () => {
-    if (!canModifyEvents) {
-      Alert.alert('Accesso Negato', 'Non hai i permessi per gestire eventi');
-      return;
-    }
-
-    const azione = event?.eventoAttivo ? 'disattivare' : 'attivare';
-    
-    Alert.alert(
-      `Conferma ${azione.charAt(0).toUpperCase() + azione.slice(1)}`,
-      `Sei sicuro di voler ${azione} questo evento?${!event?.eventoAttivo ? '\n\nQuesto sarà l\'unico evento attivo.' : ''}`,
-      [
-        { text: 'Annulla', style: 'cancel' },
-        { 
-          text: 'Conferma', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              if (!event?.eventoAttivo) {
-                await setEventoAttivo(eventId);
-                setEvent(prev => prev ? { ...prev, eventoAttivo: true } : null);
-                Alert.alert('✅ Evento Attivato', 'L\'evento è ora attivo per tutti i volontari');
-              } else {
-                // Per disattivare, aggiorna solo questo evento
-                await updateEvent(eventId, { eventoAttivo: false } as any);
-                setEvent(prev => prev ? { ...prev, eventoAttivo: false } : null);
-                Alert.alert('📴 Evento Disattivato', 'L\'evento non è più attivo');
-              }
-            } catch (error) {
-              console.error('❌ Errore toggle evento:', error);
-              Alert.alert('Errore', `Impossibile ${azione} l'evento`);
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  // NUOVO: Configura squadre standard
-  const handleConfiguraSquadre = async () => {
-    Alert.alert(
-      'Configura Squadre',
-      'Vuoi configurare le squadre standard SAP-001, SAP-002, SAP-003?',
-      [
-        { text: 'Annulla', style: 'cancel' },
-        { 
-          text: 'Configura', 
-          onPress: async () => {
-            try {
-              await configuraSquadreStandard(eventId, 3);
-              Alert.alert('✅ Squadre Configurate', 'Squadre SAP-001, SAP-002, SAP-003 create');
-              await loadAssegnazioni();
-            } catch (error) {
-              console.error('❌ Errore configurazione squadre:', error);
-              Alert.alert('Errore', 'Impossibile configurare squadre');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  // Navigazione configurazione squadre (solo admin)
+  // Navigazione configurazione squadre
   const navigateToTeamConfig = () => {
     if (!canModifyEvents) {
       Alert.alert('Accesso Negato', 'Funzionalità riservata ai responsabili');
       return;
     }
     navigation.navigate('TeamConfiguration', { eventId });
-  };
-
-  // NUOVO: Navigazione selezione volontari
-  const navigateToVolunteerSelection = (squadraId?: string) => {
-    if (!canModifyEvents) {
-      Alert.alert('Accesso Negato', 'Funzionalità riservata ai responsabili');
-      return;
-    }
-    navigation.navigate('VolunteerSelection', { eventId, teamId: squadraId });
   };
 
   // Colore livello
@@ -356,115 +258,6 @@ const EventDetailScreen: React.FC = () => {
       case 'High': return '#E30000';
       default: return '#6C757D';
     }
-  };
-
-  // NUOVO: Render sezione gestione volontari
-  const renderGestioneVolontari = () => {
-    if (!isAdmin) return null;
-
-    return (
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>👥 Gestione Volontari</Text>
-          <View style={styles.sectionActions}>
-            <TouchableOpacity
-              style={[styles.actionButton, event?.eventoAttivo ? styles.disableButton : styles.activateButton]}
-              onPress={toggleEventoAttivo}
-            >
-              <MaterialCommunityIcons 
-                name={event?.eventoAttivo ? "pause-circle" : "play-circle"} 
-                size={16} 
-                color="white" 
-              />
-              <Text style={styles.actionButtonText}>
-                {event?.eventoAttivo ? 'Disattiva' : 'Attiva'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {event?.eventoAttivo && (
-          <View style={styles.statusBanner}>
-            <MaterialCommunityIcons name="circle" size={12} color="#28A745" />
-            <Text style={styles.statusText}>Evento Attivo - Visibile ai volontari</Text>
-          </View>
-        )}
-
-        {loadingAssegnazioni ? (
-          <View style={styles.loadingAssegnazioni}>
-            <ActivityIndicator size="small" color="#E30000" />
-            <Text style={styles.loadingText}>Caricamento assegnazioni...</Text>
-          </View>
-        ) : (
-          <>
-            {assegnazioni.length === 0 ? (
-              <View style={styles.noAssegnazioni}>
-                <MaterialCommunityIcons name="account-off" size={48} color="#CCC" />
-                <Text style={styles.noAssegnazioniText}>Nessun volontario assegnato</Text>
-                <TouchableOpacity
-                  style={styles.configuraButton}
-                  onPress={navigateToTeamConfig} 
-                >
-                  <Text style={styles.configuraButtonText}>Configura Squadre</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.assegnazioniContainer}>
-                <View style={styles.assegnazioniHeader}>
-                  <Text style={styles.assegnazioniTitle}>
-                    {assegnazioni.length} volontari assegnati in {Object.keys(squadreRaggruppate).length} squadre
-                  </Text>
-                  <TouchableOpacity
-                    style={styles.addVolunteerButton}
-                    onPress={() => navigateToVolunteerSelection()}
-                  >
-                    <MaterialCommunityIcons name="account-plus" size={16} color="#E30000" />
-                    <Text style={styles.addVolunteerText}>Aggiungi</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {Object.entries(squadreRaggruppate).map(([squadraId, membri]) => (
-                  <View key={squadraId} style={styles.squadraCard}>
-                    <View style={styles.squadraHeader}>
-                      <View style={styles.squadraInfo}>
-                        <MaterialCommunityIcons name="account-group" size={20} color="#E30000" />
-                        <Text style={styles.squadraNome}>{squadraId}</Text>
-                        <View style={styles.squadraBadge}>
-                          <Text style={styles.squadraBadgeText}>{membri.length}</Text>
-                        </View>
-                      </View>
-                      <TouchableOpacity
-                        style={styles.editSquadraButton}
-                        onPress={() => navigateToVolunteerSelection(squadraId)}
-                      >
-                        <MaterialCommunityIcons name="pencil" size={16} color="#666" />
-                      </TouchableOpacity>
-                    </View>
-
-                    <View style={styles.membriContainer}>
-                      {membri.map((membro) => (
-                        <View key={membro.id} style={styles.membroCard}>
-                          <View style={styles.membroInfo}>
-                            <Text style={styles.membroNome}>{membro.userName}</Text>
-                            <Text style={styles.membroEmail}>{membro.userEmail}</Text>
-                          </View>
-                          {membro.ruolo === 'coordinatore' && (
-                            <View style={styles.coordinatoreBadge}>
-                              <MaterialCommunityIcons name="star" size={12} color="#FFA500" />
-                              <Text style={styles.coordinatoreText}>Coord</Text>
-                            </View>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-          </>
-        )}
-      </View>
-    );
   };
 
   if (!event) {
@@ -480,27 +273,20 @@ const EventDetailScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
-        style={styles.container} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      <KeyboardAwareWrapper 
+        style={styles.wrapper}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
       >
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Header permessi */}
+        <View style={styles.permissionsBanner}>
+          <Text style={styles.permissionsText}>
+            {isAdmin ? '👑 Modalità Responsabile' : '👁️ Modalità Visualizzazione'} - {nome} {cognome}
+          </Text>
+        </View>
+
+        {/* Contenuto principale */}
+        <View style={styles.content}>
           
-          {/* DEBUG INFO BANNER */}
-          <View style={styles.debugBanner}>
-            <Text style={styles.debugText}>
-              📁 File: EventDetailScreen.tsx | 🔧 {isAdmin ? 'Admin Debug Mode' : 'User Debug Mode'}
-            </Text>
-          </View>
-
-          {/* Header con permessi */}
-          <View style={styles.permissionsBanner}>
-            <Text style={styles.permissionsText}>
-              {isAdmin ? '👑 Modalità Responsabile' : '👁️ Modalità Visualizzazione'} 
-              - {nome} {cognome}
-            </Text>
-          </View>
-
           {/* Informazioni base */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>📋 Informazioni Evento</Text>
@@ -513,6 +299,7 @@ const EventDetailScreen: React.FC = () => {
                   value={nomeEvento}
                   onChangeText={setNomeEvento}
                   placeholder="Inserisci nome evento"
+                  returnKeyType="next"
                 />
               ) : (
                 <Text style={styles.value}>{event.nomeEvento}</Text>
@@ -527,6 +314,7 @@ const EventDetailScreen: React.FC = () => {
                   value={localita}
                   onChangeText={setLocalita}
                   placeholder="Inserisci località"
+                  returnKeyType="next"
                 />
               ) : (
                 <Text style={styles.value}>{event.localita}</Text>
@@ -542,6 +330,7 @@ const EventDetailScreen: React.FC = () => {
                     value={dataEvento}
                     onChangeText={setDataEvento}
                     placeholder="gg/mm/aaaa"
+                    returnKeyType="next"
                   />
                 ) : (
                   <Text style={styles.value}>{event.dataEvento || 'Non specificata'}</Text>
@@ -587,6 +376,7 @@ const EventDetailScreen: React.FC = () => {
                     value={oraInizio}
                     onChangeText={setOraInizio}
                     placeholder="hh:mm"
+                    returnKeyType="next"
                   />
                 ) : (
                   <Text style={styles.value}>{event.oraInizio || 'Non specificata'}</Text>
@@ -601,6 +391,7 @@ const EventDetailScreen: React.FC = () => {
                     value={oraFine}
                     onChangeText={setOraFine}
                     placeholder="hh:mm"
+                    returnKeyType="next"
                   />
                 ) : (
                   <Text style={styles.value}>{event.oraFine || 'Non specificata'}</Text>
@@ -618,6 +409,8 @@ const EventDetailScreen: React.FC = () => {
                   placeholder="Note aggiuntive..."
                   multiline
                   numberOfLines={3}
+                  textAlignVertical="top"
+                  returnKeyType="done"
                 />
               ) : (
                 <Text style={styles.value}>{event.note || 'Nessuna nota'}</Text>
@@ -625,13 +418,10 @@ const EventDetailScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* NUOVO: Sezione gestione volontari - solo admin */}
-          {renderGestioneVolontari()}
-
           {/* Sezione configurazione squadre - solo admin */}
           <AdminOnly>
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>⚙️ Configurazione Avanzata</Text>
+              <Text style={styles.sectionTitle}>⚙️ Configurazione</Text>
               
               <TouchableOpacity
                 style={styles.configButton}
@@ -640,23 +430,20 @@ const EventDetailScreen: React.FC = () => {
                 <MaterialCommunityIcons name="cog" size={24} color="#E30000" />
                 <View style={styles.configButtonContent}>
                   <Text style={styles.configButtonTitle}>Configurazioni Tecniche</Text>
-                  <Text style={styles.configButtonSubtitle}>Health Points e impostazioni avanzate</Text>
+                  <Text style={styles.configButtonSubtitle}>Squadre, Health Points e impostazioni</Text>
                 </View>
                 <MaterialCommunityIcons name="chevron-right" size={24} color="#999" />
               </TouchableOpacity>
             </View>
           </AdminOnly>
 
-          {/* NUOVO: Sezione Zona Pericolosa - CANCELLAZIONE EVENTO */}
+          {/* Zona Pericolosa - CANCELLAZIONE EVENTO */}
           <AdminOnly>
             <View style={[styles.section, styles.dangerZone]}>
               <View style={styles.dangerZoneHeader}>
                 <MaterialCommunityIcons name="alert-circle" size={24} color="#E30000" />
                 <Text style={styles.dangerZoneTitle}>⚠️ Zona Pericolosa</Text>
               </View>
-              <Text style={styles.dangerZoneSubtitle}>
-                Azioni irreversibili che non possono essere annullate
-              </Text>
               
               <TouchableOpacity
                 style={styles.deleteButton}
@@ -669,33 +456,18 @@ const EventDetailScreen: React.FC = () => {
                 ) : (
                   <>
                     <MaterialCommunityIcons name="delete-forever" size={20} color="white" />
-                    <Text style={styles.deleteButtonText}>CANCELLA EVENTO DEFINITIVAMENTE</Text>
+                    <Text style={styles.deleteButtonText}>CANCELLA EVENTO</Text>
                   </>
                 )}
               </TouchableOpacity>
-              
-              <Text style={styles.deleteWarning}>
-                ⚠️ Questa azione cancellerà permanentemente l'evento, tutte le configurazioni e le assegnazioni volontari.
-              </Text>
             </View>
           </AdminOnly>
 
-          {/* Informazioni evento */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>ℹ️ Dettagli Tecnici</Text>
-            <Text style={styles.infoText}>
-              Creato da: {event.createdBy}
-            </Text>
-            {event.lastModifiedBy && (
-              <Text style={styles.infoText}>
-                Ultima modifica: {event.lastModifiedBy}
-              </Text>
-            )}
-          </View>
+          {/* Spacer finale per garantire scroll */}
+          <View style={styles.bottomSpacer} />
+        </View>
 
-        </ScrollView>
-
-        {/* Pulsanti azione - solo admin - FIXED STYLING */}
+        {/* Pulsanti azione - solo admin */}
         <AdminOnly>
           <View style={styles.actionButtons}>
             {isEditing ? (
@@ -734,15 +506,19 @@ const EventDetailScreen: React.FC = () => {
             )}
           </View>
         </AdminOnly>
-      </KeyboardAvoidingView>
+      </KeyboardAwareWrapper>
     </SafeAreaView>
   );
 };
 
+// Mantieni tutti i tuoi styles esistenti...
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8F9FA',
+  },
+  wrapper: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -756,20 +532,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-  },
-  // DEBUG BANNER - NUOVO
-  debugBanner: {
-    backgroundColor: '#FFF9C4',
-    padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F57F17',
-  },
-  debugText: {
-    fontSize: 12,
-    color: '#F57F17',
-    textAlign: 'center',
-    fontWeight: '600',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    paddingHorizontal: 16,
   },
   permissionsBanner: {
     backgroundColor: '#E8F4FD',
@@ -785,7 +548,7 @@ const styles = StyleSheet.create({
   },
   section: {
     backgroundColor: 'white',
-    margin: 16,
+    marginVertical: 8,
     padding: 16,
     borderRadius: 8,
     shadowColor: '#000',
@@ -800,7 +563,6 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 16,
   },
-  // NUOVO: Styling zona pericolosa
   dangerZone: {
     borderLeftWidth: 4,
     borderLeftColor: '#E30000',
@@ -817,11 +579,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#E30000',
   },
-  dangerZoneSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 16,
-  },
   deleteButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -837,186 +594,7 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
-    textAlign: 'center',
   },
-  deleteWarning: {
-    fontSize: 12,
-    color: '#E30000',
-    textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 16,
-  },
-  // NUOVO: Styling per gestione volontari
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 4,
-  },
-  activateButton: {
-    backgroundColor: '#28A745',
-  },
-  disableButton: {
-    backgroundColor: '#666',
-  },
-  actionButtonText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  statusBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0FFF4',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-    gap: 8,
-  },
-  statusText: {
-    color: '#28A745',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  loadingAssegnazioni: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-    gap: 8,
-  },
-  noAssegnazioni: {
-    alignItems: 'center',
-    padding: 32,
-    gap: 16,
-  },
-  noAssegnazioniText: {
-    fontSize: 16,
-    color: '#999',
-    textAlign: 'center',
-  },
-  configuraButton: {
-    backgroundColor: '#E30000',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  configuraButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  assegnazioniContainer: {
-    gap: 16,
-  },
-  assegnazioniHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  assegnazioniTitle: {
-    fontSize: 14,
-    color: '#666',
-    flex: 1,
-  },
-  addVolunteerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  addVolunteerText: {
-    color: '#E30000',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  squadraCard: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    padding: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#E30000',
-  },
-  squadraHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  squadraInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  squadraNome: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  squadraBadge: {
-    backgroundColor: '#E30000',
-    borderRadius: 12,
-    width: 24,
-    height: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  squadraBadgeText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  editSquadraButton: {
-    padding: 4,
-  },
-  membriContainer: {
-    gap: 8,
-  },
-  membroCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    padding: 12,
-    borderRadius: 6,
-  },
-  membroInfo: {
-    flex: 1,
-  },
-  membroNome: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-  },
-  membroEmail: {
-    fontSize: 12,
-    color: '#666',
-  },
-  coordinatoreBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF3CD',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
-  },
-  coordinatoreText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#FFA500',
-  },
-  // Styling esistente
   field: {
     marginBottom: 16,
   },
@@ -1099,17 +677,14 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 2,
   },
-  infoText: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
+  bottomSpacer: {
+    height: 100,
   },
   actionButtons: {
     padding: 16,
     backgroundColor: 'white',
     borderTopWidth: 1,
     borderTopColor: '#E0E0E0',
-    minHeight: 80,
   },
   editingButtons: {
     flexDirection: 'row',
@@ -1122,7 +697,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 50,
   },
   editButton: {
     backgroundColor: '#E30000',
@@ -1130,14 +704,12 @@ const styles = StyleSheet.create({
   editButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
   },
   editButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
-    textAlign: 'center',
   },
   saveButton: {
     backgroundColor: '#28A745',

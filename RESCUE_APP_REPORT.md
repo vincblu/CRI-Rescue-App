@@ -1,5 +1,5 @@
 # 📊 RESCUE APP - REPORT AUTOMATICO
-**Data:** 28/07/2025, 20:56:33
+**Data:** 29/07/2025, 02:12:53
 **Directory:** C:\Users\Vincb\Desktop\CRI-Rescue-App
 
 ## 📁 STRUTTURA FILE
@@ -7,6 +7,9 @@
 📁 .expo/
   ⚙️ devices.json
   📝 README.md
+  📁 web/
+    📁 cache/
+      📁 production/
 ⚙️ app.json
 ⚛️ App.tsx
 ⚛️ App_backup.tsx
@@ -16,6 +19,7 @@
   📄 icon.png
   📄 logo_cri.jpg
   📄 splash-icon.png
+📄 CRI 29072025_report avanzamento.docx
 ⚛️ index.ts
 ⚙️ package-lock.json
 ⚙️ package.json
@@ -25,6 +29,7 @@
 📁 src/
   📁 components/
     ⚛️ CustomHeader.tsx
+    ⚛️ KeyboardAwareWrapper.tsx
   📁 config/
     ⚛️ firebaseConfig.ts
   📁 context/
@@ -42,9 +47,11 @@
     ⚛️ VolunteerSelectionScreen.tsx
   📁 services/
     ⚛️ eventService.ts
+    ⚛️ squadraService.ts
     ⚛️ userService.ts
   📁 types/
     ⚛️ navigation.ts
+    ⚛️ squadra.ts
 ⚙️ tsconfig.json
 ```
 

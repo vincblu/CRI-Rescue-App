@@ -1,7 +1,18 @@
+// src/screens/LoginScreen.tsx - VERSIONE DEFINITIVA ANTI-OVERLAP
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet, SafeAreaView, Alert } from 'react-native';
+import { 
+  View, 
+  Text, 
+  TextInput, 
+  TouchableOpacity, 
+  Image, 
+  StyleSheet, 
+  Alert,
+  Platform 
+} from 'react-native';
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { app } from '../config/firebaseConfig';
+import KeyboardAwareWrapper from '../components/KeyboardAwareWrapper'; // IMPORTA IL WRAPPER
 
 const LoginScreen: React.FC = () => {
   const [email, setEmail] = React.useState('');
@@ -43,101 +54,138 @@ const LoginScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.headerContainer}>
-        {/* Logo CRI */}
-        <Image
-          source={require('../../assets/logo_cri.jpg')} // Assicurati che il percorso sia corretto
-          style={styles.logo}
-        />
-        {/* Testo dell'App */}
-        <Text style={styles.appTitle}>CRI Rescue App</Text>
-        {/* Testo Secondario */}
-        <Text style={styles.subtitle}>Croce Rossa Italiana</Text>
-        <Text style={styles.subtitle}>Comitato Napoli Nord</Text>
-      </View>
+    <KeyboardAwareWrapper 
+      style={styles.container}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : -50}
+    >
+      <View style={styles.contentContainer}>
+        
+        {/* Header con Logo */}
+        <View style={styles.headerContainer}>
+          <Image
+            source={require('../../assets/logo_cri.jpg')}
+            style={styles.logo}
+          />
+          <Text style={styles.appTitle}>CRI Rescue App</Text>
+          <Text style={styles.subtitle}>Croce Rossa Italiana</Text>
+          <Text style={styles.subtitle}>Comitato Napoli Nord</Text>
+        </View>
 
-      <View style={styles.formContainer}>
-        {/* Campo Email */}
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          value={email}
-          onChangeText={setEmail}
-        />
-        {/* Campo Password */}
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
+        {/* Form Container */}
+        <View style={styles.formContainer}>
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="emailAddress"
+            autoComplete="email"
+            value={email}
+            onChangeText={setEmail}
+            returnKeyType="next"
+          />
+          
+          <TextInput
+            style={styles.input}
+            placeholder="Password"
+            secureTextEntry
+            textContentType="password"
+            autoComplete="password"
+            value={password}
+            onChangeText={setPassword}
+            returnKeyType="done"
+            onSubmitEditing={handleLogin}
+          />
 
-        {/* Pulsante Login */}
-        <TouchableOpacity style={styles.button} onPress={handleLogin}>
-          <Text style={styles.buttonText}>Accedi</Text>
-        </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.button} 
+            onPress={handleLogin}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.buttonText}>Accedi</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Spacer per garantire spazio sotto */}
+        <View style={styles.bottomSpacer} />
       </View>
-    </SafeAreaView>
+    </KeyboardAwareWrapper>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: '#FFFFFF',
+  },
+  contentContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff', // Sfondo bianco
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 40,
+    minHeight: '100%',
   },
   headerContainer: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 50,
+    paddingTop: 20,
   },
   logo: {
-    width: 150, // Larghezza desiderata del logo
-    height: 150, // Altezza desiderata del logo (proporzionata)
-    resizeMode: 'contain', // Assicura che l'immagine si adatti senza tagliare
+    width: 150,
+    height: 150,
+    resizeMode: 'contain',
     marginBottom: 20,
   },
   appTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#E30000', // Rosso CRI
-    marginBottom: 5,
+    color: '#E30000',
+    marginBottom: 8,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 16,
-    color: '#555',
+    color: '#666666',
+    textAlign: 'center',
+    marginBottom: 4,
   },
   formContainer: {
     width: '100%',
-    maxWidth: 300, // Larghezza massima per i campi input
+    maxWidth: 350,
+    paddingHorizontal: 10,
   },
   input: {
-    height: 50,
-    borderColor: '#ddd',
+    height: 55,
+    borderColor: '#E0E0E0',
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: 15,
-    marginBottom: 15,
+    marginBottom: 20,
     fontSize: 16,
+    backgroundColor: '#FAFAFA',
+    color: '#333333',
   },
   button: {
-    backgroundColor: '#E30000', // Rosso CRI
-    paddingVertical: 15,
-    borderRadius: 8,
+    backgroundColor: '#E30000',
+    paddingVertical: 16,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 10,
+    shadowColor: '#E30000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
   buttonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  bottomSpacer: {
+    height: 100, // Spazio extra importante
   },
 });
 

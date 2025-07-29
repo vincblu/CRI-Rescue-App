@@ -1,5 +1,5 @@
 # 📊 RESCUE APP - REPORT AUTOMATICO
-**Data:** 29/07/2025, 02:12:53
+**Data:** 29/07/2025, 20:13:57
 **Directory:** C:\Users\Vincb\Desktop\CRI-Rescue-App
 
 ## 📁 STRUTTURA FILE
@@ -34,6 +34,8 @@
     ⚛️ firebaseConfig.ts
   📁 context/
     ⚛️ AuthContext.tsx
+  📁 hooks/
+    ⚛️ useInterventi.ts
   📁 navigation/
     ⚛️ LoggedInTabs.tsx
   📁 screens/
@@ -47,6 +49,7 @@
     ⚛️ VolunteerSelectionScreen.tsx
   📁 services/
     ⚛️ eventService.ts
+    ⚛️ interventoService.ts
     ⚛️ squadraService.ts
     ⚛️ userService.ts
   📁 types/

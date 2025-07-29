@@ -4,15 +4,29 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   TextInput,
   FlatList,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { VolunteerSelectionScreenProps } from '../types/navigation';
+import { 
+  getVolontariDisponibili, 
+  VolontarioDisponibile,
+} from '../services/userService';
+import { 
+  createSquadra, 
+  updateSquadra, 
+  assegnaVolontariASquadra,
+  getSquadraById,
+  getNextSquadraNome 
+} from '../services/squadraService';
+import { CreateSquadraData } from '../types/squadra';
+import { auth } from '../config/firebaseConfig';
 
+// Interfaccia per volontari nella UI (convertita dai dati reali)
 interface Volunteer {
   id: string;
   name: string;
@@ -20,97 +34,92 @@ interface Volunteer {
   role: 'user' | 'admin';
   isSelected: boolean;
   currentTeam?: string;
+  qualifica?: string;
+  isDisabled?: boolean;
 }
 
 const VolunteerSelectionScreen: React.FC<VolunteerSelectionScreenProps> = ({ route, navigation }) => {
-  const { eventId, teamId } = route.params;
+  const { 
+    eventId, 
+    squadraId, 
+    teamId, // ← Compatibilità con vecchi parametri
+    nomeSquadra, 
+    isNewSquadra = true,
+    membriEsistenti = [] 
+  } = route.params;
+  
+  // Usa squadraId se disponibile, altrimenti teamId per compatibilità
+  const effectiveSquadraId = squadraId || teamId;
   
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedVolunteers, setSelectedVolunteers] = useState<string[]>([]);
-  const [teamName, setTeamName] = useState('');
+  const [selectedVolunteers, setSelectedVolunteers] = useState<string[]>(membriEsistenti);
+  const [teamName, setTeamName] = useState(nomeSquadra || '');
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    loadVolunteers();
-    loadTeamInfo();
+    loadData();
   }, []);
 
-  const loadVolunteers = async () => {
+  const loadData = async () => {
     try {
-      // TODO: Caricare volontari da Firebase
-      // Per ora usiamo dati di esempio
-      const mockVolunteers: Volunteer[] = [
-        {
-          id: '1',
-          name: 'Vincenzo Russo',
-          email: 'vincenzo.russo@cri.it',
-          role: 'admin',
+      setLoading(true);
+      console.log('👥 Caricando dati reali dal database...');
+      
+      // Carica volontari disponibili dal database reale
+      const volontariDisponibili = await getVolontariDisponibili(eventId);
+      
+      // Converte i volontari dal format del service al format del componente
+      const volunteersFormatted: Volunteer[] = volontariDisponibili.map((volontario) => {
+        const isInThisEvent = volontario.eventoAttivo === eventId;
+        const isInDifferentEvent = volontario.isAssegnato && !isInThisEvent;
+        
+        return {
+          id: volontario.uid,
+          name: volontario.displayName || volontario.nome || 'Nome non disponibile',
+          email: volontario.email || 'Email non disponibile',
+          role: volontario.role || 'user',
           isSelected: false,
-          currentTeam: 'SAP-001',
-        },
-        {
-          id: '2',
-          name: 'Maria Verdi',
-          email: 'maria.verdi@cri.it',
-          role: 'user',
-          isSelected: false,
-          currentTeam: 'SAP-001',
-        },
-        {
-          id: '3',
-          name: 'Antonio Esposito',
-          email: 'antonio.esposito@cri.it',
-          role: 'user',
-          isSelected: false,
-          currentTeam: 'SAP-002',
-        },
-        {
-          id: '4',
-          name: 'Luigi Mollo',
-          email: 'luigi.mollo@cri.it',
-          role: 'user',
-          isSelected: false,
-        },
-        {
-          id: '5',
-          name: 'Antonio Abete',
-          email: 'antonio.abete@cri.it',
-          role: 'user',
-          isSelected: false,
-        },
-        {
-          id: '6',
-          name: 'Mario De Luca',
-          email: 'mario.deluca@cri.it',
-          role: 'user',
-          isSelected: false,
-        },
-        {
-          id: '7',
-          name: 'Antonio Mimma',
-          email: 'antonio.mimma@cri.it',
-          role: 'user',
-          isSelected: false,
-        },
-      ];
+          qualifica: volontario.qualifica,
+          currentTeam: isInThisEvent && volontario.squadraAssegnata 
+            ? `Squadra ${volontario.squadraAssegnata}` 
+            : undefined,
+          isDisabled: isInDifferentEvent // Disabilita se assegnato ad altro evento
+        };
+      });
 
-      setVolunteers(mockVolunteers);
-      setLoading(false);
+      console.log(`✅ Caricati ${volunteersFormatted.length} volontari reali`);
+      setVolunteers(volunteersFormatted);
+
+      // Se stiamo modificando una squadra esistente, carica i dati
+      if (!isNewSquadra && effectiveSquadraId) {
+        await loadExistingSquadra();
+      } else if (isNewSquadra && !nomeSquadra) {
+        // Se stiamo creando una nuova squadra senza nome, genera il prossimo nome
+        const nextName = await getNextSquadraNome(eventId);
+        setTeamName(nextName);
+      }
+
     } catch (error) {
-      console.error('Errore nel caricamento volontari:', error);
-      Alert.alert('Errore', 'Impossibile caricare i volontari');
+      console.error('❌ Errore caricamento dati:', error);
+      Alert.alert('Errore', 'Impossibile caricare i dati dal database');
+    } finally {
       setLoading(false);
     }
   };
 
-  const loadTeamInfo = async () => {
-    if (teamId) {
-      // TODO: Caricare info squadra da Firebase
-      setTeamName(`SAP-${teamId.padStart(3, '0')}`);
-      
-      // TODO: Preselezionare membri esistenti
-      // setSelectedVolunteers(existingMembers);
+  const loadExistingSquadra = async () => {
+    if (!effectiveSquadraId) return;
+
+    try {
+      const squadra = await getSquadraById(effectiveSquadraId);
+      if (squadra) {
+        setTeamName(squadra.nome);
+        setSelectedVolunteers(squadra.membri);
+      }
+    } catch (error) {
+      console.error('❌ Errore caricamento squadra:', error);
     }
   };
 
@@ -130,18 +139,38 @@ const VolunteerSelectionScreen: React.FC<VolunteerSelectionScreenProps> = ({ rou
       return;
     }
 
+    if (!teamName.trim()) {
+      Alert.alert('Attenzione', 'Nome squadra non valido');
+      return;
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      Alert.alert('Errore', 'Utente non autenticato');
+      return;
+    }
+
     try {
-      // TODO: Salvare configurazione squadra su Firebase
-      console.log('Salvataggio squadra:', {
-        eventId,
-        teamId,
+      setSaving(true);
+      console.log('💾 Salvando squadra:', {
+        isNewSquadra,
         teamName,
-        members: selectedVolunteers,
+        eventId,
+        selectedVolunteers,
+        effectiveSquadraId
       });
+
+      if (isNewSquadra) {
+        // Crea nuova squadra
+        await createNewSquadra(currentUser.uid);
+      } else {
+        // Aggiorna squadra esistente
+        await updateExistingSquadra(currentUser.uid);
+      }
 
       Alert.alert(
         'Successo',
-        `Squadra ${teamName} configurata con ${selectedVolunteers.length} membri`,
+        `Squadra ${teamName} ${isNewSquadra ? 'creata' : 'aggiornata'} con ${selectedVolunteers.length} membri`,
         [
           {
             text: 'OK',
@@ -149,10 +178,71 @@ const VolunteerSelectionScreen: React.FC<VolunteerSelectionScreenProps> = ({ rou
           },
         ]
       );
+
     } catch (error) {
-      console.error('Errore nel salvataggio:', error);
+      console.error('❌ Errore salvataggio:', error);
       Alert.alert('Errore', 'Impossibile salvare la configurazione');
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const createNewSquadra = async (userId: string) => {
+    const squadraData: CreateSquadraData = {
+      nome: teamName.trim(),
+      eventoId: eventId,
+      membri: selectedVolunteers,
+      createdBy: userId
+    };
+
+    console.log('🆕 Creando nuova squadra:', squadraData);
+    const result = await createSquadra(squadraData);
+    
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
+    console.log('✅ Squadra creata con successo:', result);
+  };
+
+  const updateExistingSquadra = async (userId: string) => {
+    if (!effectiveSquadraId) {
+      throw new Error('ID squadra mancante');
+    }
+
+    console.log('🔄 Aggiornando squadra esistente:', effectiveSquadraId);
+    
+    // Aggiorna la squadra con i nuovi membri
+    const result = await assegnaVolontariASquadra(effectiveSquadraId, selectedVolunteers, eventId);
+    
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
+    console.log('✅ Squadra aggiornata con successo:', result);
+  };
+
+  const getVolunteerDisplayInfo = (volunteer: Volunteer) => {
+    const isSelected = selectedVolunteers.includes(volunteer.id);
+
+    let statusText = '';
+    let statusColor = '#666';
+
+    if (isSelected) {
+      statusText = 'Selezionato';
+      statusColor = '#28A745';
+    } else if (volunteer.currentTeam) {
+      statusText = `In ${volunteer.currentTeam}`;
+      statusColor = '#FFA500';
+    } else if (volunteer.isDisabled) {
+      statusText = 'Assegnato ad altro evento';
+      statusColor = '#E30000';
+    } else {
+      statusText = 'Disponibile';
+      statusColor = '#28A745';
+    }
+
+    return { statusText, statusColor, canSelect: !volunteer.isDisabled };
   };
 
   const filteredVolunteers = volunteers.filter(volunteer =>
@@ -161,38 +251,46 @@ const VolunteerSelectionScreen: React.FC<VolunteerSelectionScreenProps> = ({ rou
   );
 
   const renderVolunteerItem = ({ item }: { item: Volunteer }) => {
+    const { statusText, statusColor, canSelect } = getVolunteerDisplayInfo(item);
     const isSelected = selectedVolunteers.includes(item.id);
-    const hasTeam = Boolean(item.currentTeam && item.currentTeam !== teamName);
 
     return (
       <TouchableOpacity
         style={[
           styles.volunteerCard,
           isSelected && styles.volunteerCardSelected,
-          hasTeam && styles.volunteerCardInTeam,
+          !canSelect && styles.volunteerCardDisabled,
         ]}
-        onPress={() => handleVolunteerToggle(item.id)}
-        disabled={hasTeam}
-        activeOpacity={hasTeam ? 1 : 0.7}
+        onPress={() => canSelect && handleVolunteerToggle(item.id)}
+        disabled={!canSelect}
+        activeOpacity={canSelect ? 0.7 : 1}
       >
         <View style={styles.volunteerInfo}>
           <Text style={[
             styles.volunteerName,
             isSelected && styles.volunteerNameSelected,
+            !canSelect && styles.volunteerNameDisabled,
           ]}>
             {item.name}
           </Text>
+          
           <Text style={[
             styles.volunteerEmail,
             isSelected && styles.volunteerEmailSelected,
+            !canSelect && styles.volunteerEmailDisabled,
           ]}>
             {item.email}
           </Text>
-          {item.currentTeam && (
-            <Text style={styles.currentTeam}>
-              {item.currentTeam === teamName ? 'Membro corrente' : `Già in ${item.currentTeam}`}
+          
+          {item.qualifica && (
+            <Text style={styles.volunteerQualifica}>
+              {item.qualifica}
             </Text>
           )}
+          
+          <Text style={[styles.volunteerStatus, { color: statusColor }]}>
+            {statusText}
+          </Text>
         </View>
         
         <View style={styles.volunteerActions}>
@@ -205,7 +303,13 @@ const VolunteerSelectionScreen: React.FC<VolunteerSelectionScreenProps> = ({ rou
           <MaterialCommunityIcons
             name={isSelected ? 'check-circle' : 'circle-outline'}
             size={24}
-            color={isSelected ? '#28A745' : '#CCC'}
+            color={
+              isSelected 
+                ? '#28A745' 
+                : canSelect 
+                  ? '#CCC' 
+                  : '#999'
+            }
           />
         </View>
       </TouchableOpacity>
@@ -215,7 +319,8 @@ const VolunteerSelectionScreen: React.FC<VolunteerSelectionScreenProps> = ({ rou
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Caricamento volontari...</Text>
+        <ActivityIndicator size="large" color="#E30000" />
+        <Text style={styles.loadingText}>Caricamento volontari dal database...</Text>
       </View>
     );
   }
@@ -229,7 +334,9 @@ const VolunteerSelectionScreen: React.FC<VolunteerSelectionScreenProps> = ({ rou
         >
           <Text style={styles.backButtonText}>← Indietro</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Configura {teamName}</Text>
+        <Text style={styles.headerTitle}>
+          {isNewSquadra ? 'Crea' : 'Modifica'} {teamName}
+        </Text>
       </View>
 
       <View style={styles.content}>
@@ -239,7 +346,7 @@ const VolunteerSelectionScreen: React.FC<VolunteerSelectionScreenProps> = ({ rou
           </Text>
           <TextInput
             style={styles.searchInput}
-            placeholder="Cerca volontario..."
+            placeholder="Cerca volontario per nome o email..."
             value={searchTerm}
             onChangeText={setSearchTerm}
           />
@@ -252,22 +359,34 @@ const VolunteerSelectionScreen: React.FC<VolunteerSelectionScreenProps> = ({ rou
           style={styles.volunteerList}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                {searchTerm ? 'Nessun volontario trovato' : 'Nessun volontario disponibile nel database'}
+              </Text>
+            </View>
+          }
         />
 
         <View style={styles.footer}>
           <TouchableOpacity
-            style={styles.saveButton}
+            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
             onPress={handleSave}
+            disabled={saving || selectedVolunteers.length === 0}
           >
-            <Text style={styles.saveButtonText}>
-              Salva Configurazione ({selectedVolunteers.length} membri)
-            </Text>
+            {saving ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.saveButtonText}>
+                {isNewSquadra ? 'Crea' : 'Aggiorna'} Squadra ({selectedVolunteers.length} membri)
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -283,6 +402,8 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 16,
     color: '#666',
+    marginTop: 10,
+    textAlign: 'center',
   },
   header: {
     flexDirection: 'row',
@@ -332,6 +453,16 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 20,
   },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
   volunteerCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -352,7 +483,7 @@ const styles = StyleSheet.create({
     borderColor: '#28A745',
     backgroundColor: '#F8FFF9',
   },
-  volunteerCardInTeam: {
+  volunteerCardDisabled: {
     backgroundColor: '#F8F8F8',
     opacity: 0.6,
   },
@@ -368,6 +499,9 @@ const styles = StyleSheet.create({
   volunteerNameSelected: {
     color: '#28A745',
   },
+  volunteerNameDisabled: {
+    color: '#999',
+  },
   volunteerEmail: {
     fontSize: 14,
     color: '#666',
@@ -376,10 +510,18 @@ const styles = StyleSheet.create({
   volunteerEmailSelected: {
     color: '#28A745',
   },
-  currentTeam: {
+  volunteerEmailDisabled: {
+    color: '#999',
+  },
+  volunteerQualifica: {
     fontSize: 12,
-    color: '#FFA500',
+    color: '#007BFF',
     fontStyle: 'italic',
+    marginBottom: 4,
+  },
+  volunteerStatus: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   volunteerActions: {
     flexDirection: 'row',
@@ -410,6 +552,9 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 8,
     alignItems: 'center',
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#CCC',
   },
   saveButtonText: {
     color: '#FFFFFF',

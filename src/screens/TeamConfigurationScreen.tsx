@@ -4,237 +4,204 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
-  TextInput,
-  Alert,
   FlatList,
+  Alert,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { TeamConfigurationScreenProps } from '../types/navigation';
-
-interface Team {
-  id: string;
-  name: string;
-  members: string[];
-  status: 'Libera' | 'Intervento' | 'Trasferimento';
-}
-
-interface HealthPoint {
-  id: string;
-  name: string;
-  type: 'Tenda' | 'Furgone' | 'Ambulanza' | 'Struttura';
-  status: 'Libero' | 'Ricezione' | 'Intervento';
-  location?: string;
-}
+import { 
+  getSquadreConMembri, 
+  deleteSquadra, 
+  getNextSquadraNome 
+} from '../services/squadraService';
+import { SquadraConMembri } from '../types/squadra';
+import { auth } from '../config/firebaseConfig';
 
 const TeamConfigurationScreen: React.FC<TeamConfigurationScreenProps> = ({ route, navigation }) => {
   const { eventId } = route.params;
   
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [healthPoints, setHealthPoints] = useState<HealthPoint[]>([]);
-  const [isAddingTeam, setIsAddingTeam] = useState(false);
-  const [isAddingHP, setIsAddingHP] = useState(false);
-  const [newTeamName, setNewTeamName] = useState('');
-  const [newHPName, setNewHPName] = useState('');
-  const [newHPType, setNewHPType] = useState<HealthPoint['type']>('Tenda');
+  const [squadre, setSquadre] = useState<SquadraConMembri[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    loadConfiguration();
-  }, []);
+  // Ricarica dati quando la schermata torna in focus
+  useFocusEffect(
+    React.useCallback(() => {
+      loadSquadre();
+    }, [eventId])
+  );
 
-  const loadConfiguration = async () => {
-    // TODO: Caricare configurazione da Firebase
-    // Per ora usiamo dati di esempio
-    setTeams([
-      {
-        id: '1',
-        name: 'SAP-001',
-        members: ['Vincenzo Russo', 'Maria Verdi'],
-        status: 'Libera',
-      },
-      {
-        id: '2',
-        name: 'SAP-002',
-        members: ['Antonio Esposito', 'Luigi Mollo'],
-        status: 'Libera',
-      },
-    ]);
+  const loadSquadre = async (isRefresh = false) => {
+    try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
 
-    setHealthPoints([
-      {
-        id: '1',
-        name: 'HP-01',
-        type: 'Ambulanza',
-        status: 'Libero',
-        location: 'Ingresso principale',
-      },
-      {
-        id: '2',
-        name: 'HP-02',
-        type: 'Tenda',
-        status: 'Libero',
-        location: 'Area centrale',
-      },
-    ]);
-  };
+      console.log('📋 Caricando squadre per evento:', eventId);
+      const squadreData = await getSquadreConMembri(eventId);
+      setSquadre(squadreData);
 
-  const handleAddTeam = () => {
-    if (!newTeamName.trim()) {
-      Alert.alert('Errore', 'Inserisci il nome della squadra');
-      return;
+      console.log(`✅ Caricate ${squadreData.length} squadre`);
+
+    } catch (error) {
+      console.error('❌ Errore caricamento squadre:', error);
+      Alert.alert('Errore', 'Impossibile caricare le squadre');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-
-    const newTeam: Team = {
-      id: Date.now().toString(),
-      name: newTeamName.trim(),
-      members: [],
-      status: 'Libera',
-    };
-
-    setTeams(prev => [...prev, newTeam]);
-    setNewTeamName('');
-    setIsAddingTeam(false);
-
-    // TODO: Salvare su Firebase
-    Alert.alert('Successo', 'Squadra creata con successo!');
   };
 
-  const handleAddHP = () => {
-    if (!newHPName.trim()) {
-      Alert.alert('Errore', 'Inserisci il nome del Health Point');
-      return;
+  const handleCreateNewSquadra = async () => {
+    try {
+      // Genera il prossimo nome squadra disponibile
+      const nextNome = await getNextSquadraNome(eventId);
+      
+      navigation.navigate('VolunteerSelection', {
+        eventId,
+        nomeSquadra: nextNome,
+        isNewSquadra: true,
+        membriEsistenti: []
+      });
+    } catch (error) {
+      console.error('❌ Errore creazione squadra:', error);
+      Alert.alert('Errore', 'Impossibile creare una nuova squadra');
     }
-
-    const newHP: HealthPoint = {
-      id: Date.now().toString(),
-      name: newHPName.trim(),
-      type: newHPType,
-      status: 'Libero',
-    };
-
-    setHealthPoints(prev => [...prev, newHP]);
-    setNewHPName('');
-    setNewHPType('Tenda');
-    setIsAddingHP(false);
-
-    // TODO: Salvare su Firebase
-    Alert.alert('Successo', 'Health Point creato con successo!');
   };
 
-  const handleEditTeam = (team: Team) => {
-    navigation.navigate('VolunteerSelection', { 
-      eventId, 
-      teamId: team.id 
+  const handleEditSquadra = (squadra: SquadraConMembri) => {
+    navigation.navigate('VolunteerSelection', {
+      eventId,
+      squadraId: squadra.id,
+      nomeSquadra: squadra.nome,
+      isNewSquadra: false,
+      membriEsistenti: squadra.membri
     });
   };
 
-  const handleDeleteTeam = (teamId: string) => {
+  const handleDeleteSquadra = (squadra: SquadraConMembri) => {
     Alert.alert(
-      'Conferma',
-      'Sei sicuro di voler eliminare questa squadra?',
+      'Elimina Squadra',
+      `Sei sicuro di voler eliminare la squadra ${squadra.nome}?\n\nQuesto rimuoverà l'assegnazione di tutti i ${squadra.membri.length} membri.`,
       [
         { text: 'Annulla', style: 'cancel' },
         {
           text: 'Elimina',
           style: 'destructive',
-          onPress: () => {
-            setTeams(prev => prev.filter(t => t.id !== teamId));
-            // TODO: Eliminare da Firebase
-          },
+          onPress: () => confirmDeleteSquadra(squadra.id, squadra.nome),
         },
       ]
     );
   };
 
-  const handleDeleteHP = (hpId: string) => {
-    Alert.alert(
-      'Conferma',
-      'Sei sicuro di voler eliminare questo Health Point?',
-      [
-        { text: 'Annulla', style: 'cancel' },
-        {
-          text: 'Elimina',
-          style: 'destructive',
-          onPress: () => {
-            setHealthPoints(prev => prev.filter(hp => hp.id !== hpId));
-            // TODO: Eliminare da Firebase
-          },
-        },
-      ]
-    );
-  };
+  const confirmDeleteSquadra = async (squadraId: string, nomeSquadra: string) => {
+    try {
+      console.log('🗑️ Eliminando squadra:', squadraId);
+      
+      const result = await deleteSquadra(squadraId);
+      
+      if (result.success) {
+        Alert.alert('Successo', `Squadra ${nomeSquadra} eliminata con successo`);
+        loadSquadre(); // Ricarica la lista
+      } else {
+        Alert.alert('Errore', result.message);
+      }
 
-  const getStatusColor = (status: Team['status'] | HealthPoint['status']) => {
-    switch (status) {
-      case 'Libera':
-      case 'Libero':
-        return '#28A745';
-      case 'Intervento':
-        return '#E30000';
-      case 'Trasferimento':
-      case 'Ricezione':
-        return '#FFA500';
-      default:
-        return '#6C757D';
+    } catch (error) {
+      console.error('❌ Errore eliminazione squadra:', error);
+      Alert.alert('Errore', 'Impossibile eliminare la squadra');
     }
   };
 
-  const renderTeamItem = ({ item }: { item: Team }) => (
-    <View style={styles.itemCard}>
-      <View style={styles.itemHeader}>
-        <Text style={styles.itemName}>{item.name}</Text>
-        <View style={styles.itemActions}>
-          <TouchableOpacity
-            style={styles.editButton}
-            onPress={() => handleEditTeam(item)}
-          >
-            <MaterialCommunityIcons name="account-edit" size={20} color="#E30000" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.deleteButton}
-            onPress={() => handleDeleteTeam(item.id)}
-          >
-            <MaterialCommunityIcons name="delete" size={20} color="#E30000" />
-          </TouchableOpacity>
+  const renderSquadraItem = ({ item }: { item: SquadraConMembri }) => {
+    return (
+      <View style={styles.squadraCard}>
+        <View style={styles.squadraHeader}>
+          <View style={styles.squadraInfo}>
+            <Text style={styles.squadraNome}>{item.nome}</Text>
+            <Text style={styles.squadraMembri}>
+              {item.membri.length} {item.membri.length === 1 ? 'membro' : 'membri'}
+            </Text>
+          </View>
+          
+          <View style={styles.squadraActions}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => handleEditSquadra(item)}
+            >
+              <MaterialCommunityIcons name="pencil" size={20} color="#007BFF" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => handleDeleteSquadra(item)}
+            >
+              <MaterialCommunityIcons name="delete" size={20} color="#E30000" />
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {item.membriDettaglio.length > 0 && (
+          <View style={styles.membriContainer}>
+            <Text style={styles.membriTitle}>Membri:</Text>
+            {item.membriDettaglio.map((membro, index) => (
+              <View key={membro.uid} style={styles.membroItem}>
+                <Text style={styles.membroNome}>
+                  • {membro.displayName || membro.nome}
+                </Text>
+                {membro.qualifica && (
+                  <Text style={styles.membroQualifica}>
+                    ({membro.qualifica})
+                  </Text>
+                )}
+                {membro.role === 'admin' && (
+                  <View style={styles.adminBadgeSmall}>
+                    <Text style={styles.adminBadgeText}>Admin</Text>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {item.membri.length === 0 && (
+          <View style={styles.emptyMembriContainer}>
+            <Text style={styles.emptyMembriText}>
+              Nessun membro assegnato
+            </Text>
+          </View>
+        )}
       </View>
-      
-      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-        <Text style={styles.statusText}>{item.status}</Text>
-      </View>
-      
-      <Text style={styles.membersText}>
-        Membri ({item.members.length}): {item.members.join(', ') || 'Nessuno assegnato'}
+    );
+  };
+
+  const renderEmptyComponent = () => (
+    <View style={styles.emptyContainer}>
+      <MaterialCommunityIcons name="account-group-outline" size={64} color="#CCC" />
+      <Text style={styles.emptyTitle}>Nessuna squadra configurata</Text>
+      <Text style={styles.emptySubtitle}>
+        Tocca il pulsante "+" per creare la prima squadra per questo evento
       </Text>
     </View>
   );
 
-  const renderHPItem = ({ item }: { item: HealthPoint }) => (
-    <View style={styles.itemCard}>
-      <View style={styles.itemHeader}>
-        <Text style={styles.itemName}>{item.name}</Text>
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={() => handleDeleteHP(item.id)}
-        >
-          <MaterialCommunityIcons name="delete" size={20} color="#E30000" />
-        </TouchableOpacity>
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#E30000" />
+        <Text style={styles.loadingText}>Caricamento squadre...</Text>
       </View>
-      
-      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-        <Text style={styles.statusText}>{item.status}</Text>
-      </View>
-      
-      <Text style={styles.typeText}>Tipo: {item.type}</Text>
-      {item.location && (
-        <Text style={styles.locationText}>Posizione: {item.location}</Text>
-      )}
-    </View>
-  );
+    );
+  }
 
   return (
-    <ScrollView style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -242,141 +209,70 @@ const TeamConfigurationScreen: React.FC<TeamConfigurationScreenProps> = ({ route
         >
           <Text style={styles.backButtonText}>← Indietro</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Configurazione Evento</Text>
+        <Text style={styles.headerTitle}>Configurazione Squadre</Text>
       </View>
 
-      {/* Sezione Squadre */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Squadre SAP ({teams.length})</Text>
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => setIsAddingTeam(true)}
-          >
-            <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
-            <Text style={styles.addButtonText}>Nuova</Text>
-          </TouchableOpacity>
+      <View style={styles.content}>
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{squadre.length}</Text>
+            <Text style={styles.statLabel}>Squadre</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>
+              {squadre.reduce((total, squadra) => total + squadra.membri.length, 0)}
+            </Text>
+            <Text style={styles.statLabel}>Volontari</Text>
+          </View>
         </View>
 
-        {isAddingTeam && (
-          <View style={styles.addForm}>
-            <TextInput
-              style={styles.input}
-              placeholder="Nome squadra (es. SAP-003)"
-              value={newTeamName}
-              onChangeText={setNewTeamName}
-            />
-            <View style={styles.formActions}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => {
-                  setIsAddingTeam(false);
-                  setNewTeamName('');
-                }}
-              >
-                <Text style={styles.cancelButtonText}>Annulla</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.confirmButton}
-                onPress={handleAddTeam}
-              >
-                <Text style={styles.confirmButtonText}>Crea</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
         <FlatList
-          data={teams}
-          renderItem={renderTeamItem}
+          data={squadre}
+          renderItem={renderSquadraItem}
           keyExtractor={(item) => item.id}
-          scrollEnabled={false}
+          style={styles.squadreList}
           showsVerticalScrollIndicator={false}
-        />
-      </View>
-
-      {/* Sezione Health Points */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Health Points ({healthPoints.length})</Text>
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => setIsAddingHP(true)}
-          >
-            <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
-            <Text style={styles.addButtonText}>Nuovo</Text>
-          </TouchableOpacity>
-        </View>
-
-        {isAddingHP && (
-          <View style={styles.addForm}>
-            <TextInput
-              style={styles.input}
-              placeholder="Nome Health Point (es. HP-03)"
-              value={newHPName}
-              onChangeText={setNewHPName}
+          contentContainerStyle={[
+            styles.listContent,
+            squadre.length === 0 && styles.listContentEmpty
+          ]}
+          ListEmptyComponent={renderEmptyComponent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => loadSquadre(true)}
+              colors={['#E30000']}
             />
-            
-            <Text style={styles.label}>Tipo:</Text>
-            <View style={styles.typeSelector}>
-              {(['Tenda', 'Furgone', 'Ambulanza', 'Struttura'] as const).map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[
-                    styles.typeButton,
-                    newHPType === type && styles.typeButtonActive,
-                  ]}
-                  onPress={() => setNewHPType(type)}
-                >
-                  <Text
-                    style={[
-                      styles.typeButtonText,
-                      newHPType === type && styles.typeButtonTextActive,
-                    ]}
-                  >
-                    {type}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <View style={styles.formActions}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => {
-                  setIsAddingHP(false);
-                  setNewHPName('');
-                  setNewHPType('Tenda');
-                }}
-              >
-                <Text style={styles.cancelButtonText}>Annulla</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.confirmButton}
-                onPress={handleAddHP}
-              >
-                <Text style={styles.confirmButtonText}>Crea</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        <FlatList
-          data={healthPoints}
-          renderItem={renderHPItem}
-          keyExtractor={(item) => item.id}
-          scrollEnabled={false}
-          showsVerticalScrollIndicator={false}
+          }
         />
+
+        <TouchableOpacity
+          style={styles.createButton}
+          onPress={handleCreateNewSquadra}
+        >
+          <MaterialCommunityIcons name="plus" size={24} color="#FFFFFF" />
+          <Text style={styles.createButtonText}>Crea Nuova Squadra</Text>
+        </TouchableOpacity>
       </View>
-    </ScrollView>
+    </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 10,
   },
   header: {
     flexDirection: 'row',
@@ -399,170 +295,166 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
   },
-  section: {
-    margin: 15,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
+  content: {
+    flex: 1,
     padding: 15,
-    elevation: 2,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 20,
+    marginBottom: 20,
+    elevation: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  statItem: {
+    flex: 1,
     alignItems: 'center',
-    marginBottom: 15,
   },
-  sectionTitle: {
-    fontSize: 18,
+  statNumber: {
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#E30000',
   },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E30000',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  addButtonText: {
-    color: '#FFFFFF',
+  statLabel: {
     fontSize: 14,
-    fontWeight: 'bold',
-    marginLeft: 5,
-  },
-  addForm: {
-    backgroundColor: '#F8F8F8',
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 15,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#DDD',
-    borderRadius: 6,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: '#FFFFFF',
-    marginBottom: 15,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8,
-  },
-  typeSelector: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 15,
-  },
-  typeButton: {
-    backgroundColor: '#F0F0F0',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#DDD',
-  },
-  typeButtonActive: {
-    backgroundColor: '#E30000',
-    borderColor: '#E30000',
-  },
-  typeButtonText: {
-    fontSize: 12,
     color: '#666',
-    fontWeight: '500',
+    marginTop: 4,
   },
-  typeButtonTextActive: {
-    color: '#FFFFFF',
+  squadreList: {
+    flex: 1,
   },
-  formActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
+  listContent: {
+    paddingBottom: 20,
   },
-  cancelButton: {
-    backgroundColor: '#CCC',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 6,
+  listContentEmpty: {
+    flexGrow: 1,
   },
-  cancelButtonText: {
-    color: '#333',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  confirmButton: {
-    backgroundColor: '#28A745',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  confirmButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  itemCard: {
-    backgroundColor: '#F8F8F8',
+  squadraCard: {
+    backgroundColor: '#FFFFFF',
     borderRadius: 8,
     padding: 15,
-    marginBottom: 10,
-    borderLeftWidth: 4,
-    borderLeftColor: '#E30000',
+    marginBottom: 15,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
-  itemHeader: {
+  squadraHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
   },
-  itemName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+  squadraInfo: {
+    flex: 1,
   },
-  itemActions: {
+  squadraNome: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#E30000',
+    marginBottom: 4,
+  },
+  squadraMembri: {
+    fontSize: 14,
+    color: '#666',
+  },
+  squadraActions: {
     flexDirection: 'row',
     gap: 10,
   },
-  editButton: {
-    padding: 5,
+  actionButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
   },
-  deleteButton: {
-    padding: 5,
+  membriContainer: {
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    paddingTop: 10,
   },
-  statusBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+  membriTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
     marginBottom: 8,
   },
-  statusText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: 'bold',
+  membroItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    gap: 8,
   },
-  membersText: {
+  membroNome: {
     fontSize: 14,
-    color: '#666',
+    color: '#333',
+  },
+  membroQualifica: {
+    fontSize: 12,
+    color: '#007BFF',
     fontStyle: 'italic',
   },
-  typeText: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 5,
+  adminBadgeSmall: {
+    backgroundColor: '#E30000',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
-  locationText: {
+  adminBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 8,
+    fontWeight: 'bold',
+  },
+  emptyMembriContainer: {
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    paddingTop: 10,
+    alignItems: 'center',
+  },
+  emptyMembriText: {
     fontSize: 14,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  emptySubtitle: {
+    fontSize: 16,
     color: '#666',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  createButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#28A745',
+    padding: 15,
+    borderRadius: 8,
+    marginTop: 10,
+    gap: 8,
+  },
+  createButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

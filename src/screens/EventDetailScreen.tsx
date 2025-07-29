@@ -403,7 +403,7 @@ const EventDetailScreen: React.FC = () => {
                 <Text style={styles.noAssegnazioniText}>Nessun volontario assegnato</Text>
                 <TouchableOpacity
                   style={styles.configuraButton}
-                  onPress={handleConfiguraSquadre}
+                  onPress={navigateToTeamConfig} 
                 >
                   <Text style={styles.configuraButtonText}>Configura Squadre</Text>
                 </TouchableOpacity>

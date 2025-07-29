@@ -52,7 +52,7 @@ const MOCK_SQUADRA: SquadraState = {
   squadraNome: 'SAP-001',
   membri: ['Vincenzo Russo', 'Maria Verdi'],
   eventoId: 'evento-1',
-  stato: 'libera',
+  stato: 'libera', // Inizialmente in stato 'libera'
   ultimoAggiornamento: new Date(),
 };
 
@@ -65,7 +65,7 @@ const MOCK_HP_LIST: HPState[] = [
     stato: 'libero',
   },
   {
-    id: 'hp2', 
+    id: 'hp2',
     hpId: 'HP-02',
     nomeHP: 'Health Point Nord',
     eventoId: 'evento-1',
@@ -80,12 +80,24 @@ export default function InterventiScreen() {
   const [hpDisponibili, setHpDisponibili] = useState<HPState[]>(MOCK_HP_LIST);
   const [loading, setLoading] = useState(false);
 
-  // Animation per pressione prolungata
+  // Animation per pressione prolungata INIZIO INTERVENTO
   const progressAnim = useRef(new Animated.Value(0)).current;
   const [isLongPressing, setIsLongPressing] = useState(false);
-  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const animationRef = useRef<any>(null);
   const confirmationTriggered = useRef(false);
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null); // Unico timer per tutti i long press, gestito con cautela
+
+  // Animation per pressione prolungata TERMINA INTERVENTO
+  const progressAnimTermina = useRef(new Animated.Value(0)).current;
+  const [isLongPressingTermina, setIsLongPressingTermina] = useState(false);
+  const animationRefTermina = useRef<any>(null);
+  const confirmationTriggeredTermina = useRef(false);
+
+  // Animation per pressione prolungata TRASFERIMENTO IN HP
+  const progressAnimTrasferimento = useRef(new Animated.Value(0)).current;
+  const [isLongPressingTrasferimento, setIsLongPressingTrasferimento] = useState(false);
+  const animationRefTrasferimento = useRef<any>(null);
+  const confirmationTriggeredTrasferimento = useRef(false);
 
   // Cleanup al dismount
   useEffect(() => {
@@ -95,6 +107,12 @@ export default function InterventiScreen() {
       }
       if (animationRef.current) {
         animationRef.current.stop();
+      }
+      if (animationRefTermina.current) {
+        animationRefTermina.current.stop();
+      }
+      if (animationRefTrasferimento.current) {
+        animationRefTrasferimento.current.stop();
       }
     };
   }, []);
@@ -118,92 +136,88 @@ export default function InterventiScreen() {
     }
   };
 
-  // Long press handler per inizio intervento
+  // Long press handler per INIZIO INTERVENTO
   const handleLongPressStart = () => {
     if (squadraAttuale.stato !== 'libera') {
       console.log('❌ Long press bloccato - stato non libera:', squadraAttuale.stato);
       return;
     }
-    
-    console.log('🔥 Long press iniziato!');
-    
+
+    console.log('🔥 Long press iniziato per INIZIO INTERVENTO!');
+
     // Reset flags
     confirmationTriggered.current = false;
-    
+
     // Vibrazione feedback inizio
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
+
     setIsLongPressing(true);
-    
+
     // Reset animazione
     progressAnim.setValue(0);
-    
+
     // Avvia animazione
     animationRef.current = Animated.timing(progressAnim, {
       toValue: 1,
       duration: 3000,
       useNativeDriver: false,
     });
-    
+
     animationRef.current.start(({ finished }: { finished: boolean }) => {
-      console.log('🎯 Animazione completata:', { finished });
-      
+      console.log('🎯 Animazione completata per INIZIO INTERVENTO:', { finished });
+
       if (finished && !confirmationTriggered.current) {
         console.log('✅ TRIGGERING CONFERMA INTERVENTO DA ANIMAZIONE!');
         confirmationTriggered.current = true;
-        
+
         // Vibrazione feedback completamento
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        
-        // Usa setTimeout per assicurarsi che la conferma venga mostrata
+
         setTimeout(() => {
           confirmInizioIntervento();
         }, 100);
       }
-      
+
       setIsLongPressing(false);
     });
-    
+
     // Timer di sicurezza
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
     longPressTimer.current = setTimeout(() => {
       if (!confirmationTriggered.current) {
-        console.log('⏰ Timer di sicurezza attivato - forzando conferma');
+        console.log('⏰ Timer di sicurezza attivato - forzando conferma per INIZIO INTERVENTO');
         confirmationTriggered.current = true;
-        
+
         // Vibrazione feedback completamento
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        
+
         confirmInizioIntervento();
         setIsLongPressing(false);
       } else {
-        console.log('⏰ Timer di sicurezza ignorato - conferma già triggerata');
+        console.log('⏰ Timer di sicurezza ignorato - conferma già triggerata per INIZIO INTERVENTO');
       }
     }, 3100);
   };
 
   const handleLongPressEnd = () => {
-    console.log('🛑 Long press terminato');
-    
+    console.log('🛑 Long press terminato per INIZIO INTERVENTO');
+
     const wasLongPressing = isLongPressing;
     setIsLongPressing(false);
-    
-    // Se era in corso e non è stata ancora triggerata la conferma, vibrazione di cancellazione
+
     if (wasLongPressing && !confirmationTriggered.current) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    
-    // Ferma animazione
+
     if (animationRef.current) {
       animationRef.current.stop();
     }
-    
-    // Pulisci timer
+
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
-    
-    // Reset animazione
+
     Animated.timing(progressAnim, {
       toValue: 0,
       duration: 200,
@@ -213,11 +227,10 @@ export default function InterventiScreen() {
 
   // Conferma inizio intervento
   const confirmInizioIntervento = () => {
-    console.log('🚨 Showing confirmation dialog');
-    
-    // Vibrazione per attirare l'attenzione
+    console.log('🚨 Showing confirmation dialog for INIZIO INTERVENTO');
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    
+
     Alert.alert(
       "🚨 Conferma Intervento",
       `Sei sicuro di voler iniziare un nuovo intervento?\n\nSquadra: ${squadraAttuale.squadraNome}`,
@@ -248,13 +261,11 @@ export default function InterventiScreen() {
     try {
       setLoading(true);
       console.log('🚀 Iniziando intervento...');
-      
-      // Vibrazione processamento
+
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      
-      // Simula chiamata servizio
+
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       const nuovoIntervento: Intervento = {
         id: `int_${Date.now()}`,
         squadraId: squadraAttuale.squadraId,
@@ -264,15 +275,14 @@ export default function InterventiScreen() {
         timestampInizio: new Date(),
       };
 
-      // Aggiorna stato squadra
-      const squadraAggiornata = { 
-        ...squadraAttuale, 
-        stato: 'intervento' as const, 
+      const squadraAggiornata = {
+        ...squadraAttuale,
+        stato: 'intervento' as const,
         interventoAttivoId: nuovoIntervento.id,
         ultimoAggiornamento: new Date()
       };
 
-      console.log('📝 Aggiornando stati:', {
+      console.log('📝 Aggiornando stati dopo inizio intervento:', {
         oldStato: squadraAttuale.stato,
         newStato: squadraAggiornata.stato,
         interventoId: nuovoIntervento.id
@@ -280,16 +290,15 @@ export default function InterventiScreen() {
 
       setInterventoAttivo(nuovoIntervento);
       setSquadraAttuale(squadraAggiornata);
-      
-      // Vibrazione successo finale
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
+
       Alert.alert(
         "🚨 INTERVENTO ATTIVO",
         `${squadraAttuale.squadraNome} ha iniziato un intervento alle ${new Date().toLocaleTimeString()}\n\n✅ Stato: INTERVENTO IN CORSO\n🔓 Pulsanti TERMINA e TRASFERIMENTO ora attivi`,
         [{ text: "OK", style: "default" }]
       );
-      
+
     } catch (error) {
       console.error('❌ Errore inizia intervento:', error);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -299,39 +308,104 @@ export default function InterventiScreen() {
     }
   };
 
-  // Termina intervento
-  const terminaIntervento = () => {
-    // Vibrazione feedback
+  // Long press handler per TERMINA INTERVENTO
+  const handleLongPressStartTermina = () => {
+    if (squadraAttuale.stato !== 'intervento' && squadraAttuale.stato !== 'trasferimento') {
+      console.log('❌ Long press bloccato - stato non intervento/trasferimento:', squadraAttuale.stato);
+      return;
+    }
+
+    console.log('🔥 Long press iniziato per TERMINA INTERVENTO!');
+
+    confirmationTriggeredTermina.current = false;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
+    setIsLongPressingTermina(true);
+    progressAnimTermina.setValue(0);
+
+    animationRefTermina.current = Animated.timing(progressAnimTermina, {
+      toValue: 1,
+      duration: 2000, // 2 secondi per Terminare
+      useNativeDriver: false,
+    });
+
+    animationRefTermina.current.start(({ finished }: { finished: boolean }) => {
+      console.log('🎯 Animazione completata per TERMINA INTERVENTO:', { finished });
+      if (finished && !confirmationTriggeredTermina.current) {
+        console.log('✅ TRIGGERING CONFERMA TERMINA INTERVENTO DA ANIMAZIONE!');
+        confirmationTriggeredTermina.current = true;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setTimeout(() => {
+          confirmTerminaIntervento();
+        }, 100);
+      }
+      setIsLongPressingTermina(false);
+    });
+
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => {
+      if (!confirmationTriggeredTermina.current) {
+        console.log('⏰ Timer di sicurezza attivato - forzando conferma per TERMINA INTERVENTO');
+        confirmationTriggeredTermina.current = true;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        confirmTerminaIntervento();
+        setIsLongPressingTermina(false);
+      } else {
+        console.log('⏰ Timer di sicurezza ignorato - conferma già triggerata per TERMINA INTERVENTO');
+      }
+    }, 2100);
+  };
+
+  const handleLongPressEndTermina = () => {
+    console.log('🛑 Long press terminato per TERMINA INTERVENTO');
+    const wasLongPressing = isLongPressingTermina;
+    setIsLongPressingTermina(false);
+    if (wasLongPressing && !confirmationTriggeredTermina.current) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    if (animationRefTermina.current) {
+      animationRefTermina.current.stop();
+    }
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    Animated.timing(progressAnimTermina, { toValue: 0, duration: 200, useNativeDriver: false }).start();
+  };
+
+  // Conferma termina intervento
+  const confirmTerminaIntervento = () => {
+    console.log('🚨 Showing confirmation dialog for TERMINA INTERVENTO');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     Alert.alert(
       "✅ Termina Intervento",
       "Vuoi concludere l'intervento in corso?",
       [
-        { 
-          text: "Annulla", 
+        {
+          text: "Annulla",
           style: "cancel",
-          onPress: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+          onPress: () => {
+            console.log('❌ Termina Intervento annullato');
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
         },
         {
           text: "TERMINA",
           style: "default",
           onPress: async () => {
+            console.log('✅ Termina Intervento confermato');
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             try {
-              // Vibrazione conferma
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              
               setLoading(true);
               await new Promise(resolve => setTimeout(resolve, 1000));
-              
+
               setInterventoAttivo(null);
-              setSquadraAttuale(prev => ({ 
-                ...prev, 
-                stato: 'libera', 
+              setSquadraAttuale(prev => ({
+                ...prev,
+                stato: 'libera',
                 interventoAttivoId: undefined,
                 ultimoAggiornamento: new Date()
               }));
-              
+
               Alert.alert("✅ Intervento Completato", "La squadra è tornata disponibile");
             } catch (error) {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -345,14 +419,82 @@ export default function InterventiScreen() {
     );
   };
 
-  // Mostra selezione HP per trasferimento
-  const mostraSelezioneHP = () => {
-    // Vibrazione feedback
+  // Long press handler per TRASFERIMENTO IN HP
+  const handleLongPressStartTrasferimento = () => {
+    if (squadraAttuale.stato !== 'intervento') {
+      console.log('❌ Long press bloccato - stato non intervento:', squadraAttuale.stato);
+      return;
+    }
+
+    console.log('🔥 Long press iniziato per TRASFERIMENTO IN HP!');
+
+    confirmationTriggeredTrasferimento.current = false;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
+    setIsLongPressingTrasferimento(true);
+    progressAnimTrasferimento.setValue(0);
+
+    animationRefTrasferimento.current = Animated.timing(progressAnimTrasferimento, {
+      toValue: 1,
+      duration: 2000, // 2 secondi per Trasferimento
+      useNativeDriver: false,
+    });
+
+    animationRefTrasferimento.current.start(({ finished }: { finished: boolean }) => {
+      console.log('🎯 Animazione completata per TRASFERIMENTO IN HP:', { finished });
+      if (finished && !confirmationTriggeredTrasferimento.current) {
+        console.log('✅ TRIGGERING CONFERMA TRASFERIMENTO IN HP DA ANIMAZIONE!');
+        confirmationTriggeredTrasferimento.current = true;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setTimeout(() => {
+          confirmTrasferimentoHP(); // Mostra il selettore HP
+        }, 100);
+      }
+      setIsLongPressingTrasferimento(false);
+    });
+
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => {
+      if (!confirmationTriggeredTrasferimento.current) {
+        console.log('⏰ Timer di sicurezza attivato - forzando conferma per TRASFERIMENTO IN HP');
+        confirmationTriggeredTrasferimento.current = true;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        confirmTrasferimentoHP();
+        setIsLongPressingTrasferimento(false);
+      } else {
+        console.log('⏰ Timer di sicurezza ignorato - conferma già triggerata per TRASFERIMENTO IN HP');
+      }
+    }, 2100);
+  };
+
+  const handleLongPressEndTrasferimento = () => {
+    console.log('🛑 Long press terminato per TRASFERIMENTO IN HP');
+    const wasLongPressing = isLongPressingTrasferimento;
+    setIsLongPressingTrasferimento(false);
+    if (wasLongPressing && !confirmationTriggeredTrasferimento.current) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    if (animationRefTrasferimento.current) {
+      animationRefTrasferimento.current.stop();
+    }
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    Animated.timing(progressAnimTrasferimento, { toValue: 0, duration: 200, useNativeDriver: false }).start();
+  };
+
+  // Mostra selezione HP per trasferimento (ora chiamata dopo long press)
+  const confirmTrasferimentoHP = () => {
+    console.log('🚨 Showing confirmation dialog for TRASFERIMENTO IN HP');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
     const hpButtons = hpDisponibili.map(hp => ({
       text: `${hp.hpId} - ${hp.nomeHP}`,
-      onPress: () => trasferimentoHP(hp.hpId)
+      onPress: () => {
+        console.log(`✅ Trasferimento HP confermato per ${hp.hpId}`);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        trasferimentoHP(hp.hpId);
+      }
     }));
 
     Alert.alert(
@@ -360,10 +502,13 @@ export default function InterventiScreen() {
       "Dove vuoi trasferire il paziente?",
       [
         ...hpButtons,
-        { 
-          text: "Annulla", 
+        {
+          text: "Annulla",
           style: "cancel",
-          onPress: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+          onPress: () => {
+            console.log('❌ Trasferimento HP annullato');
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
         }
       ]
     );
@@ -372,28 +517,27 @@ export default function InterventiScreen() {
   // Trasferimento HP
   const trasferimentoHP = async (hpId: string) => {
     try {
-      // Vibrazione feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      
+
       setLoading(true);
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       const hpSelezionato = hpDisponibili.find(hp => hp.hpId === hpId);
-      
-      setSquadraAttuale(prev => ({ 
-        ...prev, 
+
+      setSquadraAttuale(prev => ({
+        ...prev,
         stato: 'trasferimento',
-        ultimoAggiornamento: new Date() 
+        ultimoAggiornamento: new Date()
       }));
-      
-      // Vibrazione successo
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
+
       Alert.alert(
-        "🚐 Trasferimento Iniziato", 
-        `Trasferimento verso ${hpSelezionato?.nomeHP} in corso`
+        "🚐 Trasferimento Iniziato",
+        `Trasferimento verso ${hpSelezionato?.nomeHP} in corso\n\n✅ Stato: TRASFERIMENTO IN HP\n🔓 Pulsante TERMINA INTERVENTO rimane attivo`,
+        [{ text: "OK", style: "default" }]
       );
-      
+
     } catch (error) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Errore", "Impossibile iniziare il trasferimento");
@@ -406,32 +550,32 @@ export default function InterventiScreen() {
   const renderSquadraInfo = () => (
     <View style={styles.squadraInfoContainer}>
       <View style={styles.squadraHeader}>
-        <MaterialCommunityIcons 
+        <MaterialCommunityIcons
           name={'account-group' as any}
-          size={24} 
-          color="#E30000" 
+          size={24}
+          color="#E30000"
         />
         <Text style={styles.squadraTitle}>La Tua Squadra</Text>
       </View>
-      
+
       <View style={styles.squadraDettagli}>
         <View style={styles.squadraNomeContainer}>
           <Text style={styles.squadraNome}>{squadraAttuale.squadraNome}</Text>
           <View style={[
-            styles.statoBadge, 
+            styles.statoBadge,
             { backgroundColor: getStatoColor(squadraAttuale.stato) }
           ]}>
-            <MaterialCommunityIcons 
+            <MaterialCommunityIcons
               name={getStatoIcon(squadraAttuale.stato) as any}
-              size={16} 
-              color="white" 
+              size={16}
+              color="white"
             />
             <Text style={styles.statoText}>
               {squadraAttuale.stato.toUpperCase()}
             </Text>
           </View>
         </View>
-        
+
         <Text style={styles.membriLabel}>Membri:</Text>
         {squadraAttuale.membri.map((membro, index) => (
           <Text key={index} style={styles.membroNome}>
@@ -445,7 +589,9 @@ export default function InterventiScreen() {
   // Renderizza pulsanti azioni
   const renderPulsantiAzioni = () => {
     const isInizioDisabled = squadraAttuale.stato !== 'libera' || loading;
-    const isTerminaDisabled = squadraAttuale.stato !== 'intervento' || loading;
+    // Abilitato se in intervento O in trasferimento
+    const isTerminaDisabled = (squadraAttuale.stato !== 'intervento' && squadraAttuale.stato !== 'trasferimento') || loading;
+    // Abilitato SOLO se in intervento (non se già in trasferimento)
     const isTrasferimentoDisabled = squadraAttuale.stato !== 'intervento' || loading;
 
     console.log('🔘 Stati pulsanti:', {
@@ -471,22 +617,22 @@ export default function InterventiScreen() {
           disabled={isInizioDisabled}
           activeOpacity={0.8}
         >
-          <MaterialCommunityIcons 
+          <MaterialCommunityIcons
             name={'plus-circle' as any}
-            size={28} 
-            color="white" 
+            size={28}
+            color="white"
           />
           <Text style={styles.pulsanteText}>INIZIO INTERVENTO</Text>
           <Text style={[
             styles.pulsanteSubtext,
             isLongPressing && styles.pulsanteSubtextPressing
           ]}>
-            {isLongPressing ? 'Tieni premuto...' : 'Tieni premuto 3 secondi'}
+            {isLongPressing ? 'Rilascia per annullare' : 'Tieni premuto 3 secondi'}
           </Text>
-          
+
           {/* Progress bar per long press */}
           <View style={styles.progressContainer}>
-            <Animated.View 
+            <Animated.View
               style={[
                 styles.progressBar,
                 {
@@ -495,11 +641,10 @@ export default function InterventiScreen() {
                     outputRange: ['0%', '100%']
                   })
                 }
-              ]} 
+              ]}
             />
           </View>
-          
-          {/* Feedback visivo extra */}
+
           {isLongPressing && (
             <View style={styles.pressingOverlay}>
               <Text style={styles.pressingText}>
@@ -514,18 +659,46 @@ export default function InterventiScreen() {
           style={[
             styles.pulsantePrincipale,
             styles.pulsanteTermina,
+            isLongPressingTermina && styles.pulsantePressing,
             isTerminaDisabled && styles.pulsanteDisabilitato
           ]}
-          onPress={terminaIntervento}
+          onPressIn={handleLongPressStartTermina}
+          onPressOut={handleLongPressEndTermina}
           disabled={isTerminaDisabled}
+          activeOpacity={0.8}
         >
-          <MaterialCommunityIcons 
+          <MaterialCommunityIcons
             name={'check-circle' as any}
-            size={28} 
-            color="white" 
+            size={28}
+            color="white"
           />
           <Text style={styles.pulsanteText}>TERMINA INTERVENTO</Text>
-          <Text style={styles.pulsanteSubtext}>Completa l'intervento</Text>
+          <Text style={[
+            styles.pulsanteSubtext,
+            isLongPressingTermina && styles.pulsanteSubtextPressing
+          ]}>
+            {isLongPressingTermina ? 'Rilascia per annullare' : 'Tieni premuto 2 secondi'}
+          </Text>
+          <View style={styles.progressContainer}>
+            <Animated.View
+              style={[
+                styles.progressBar,
+                {
+                  width: progressAnimTermina.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0%', '100%']
+                  })
+                }
+              ]}
+            />
+          </View>
+          {isLongPressingTermina && (
+            <View style={styles.pressingOverlay}>
+              <Text style={styles.pressingText}>
+                Tieni premuto...
+              </Text>
+            </View>
+          )}
         </TouchableOpacity>
 
         {/* TRASFERIMENTO HP */}
@@ -533,18 +706,46 @@ export default function InterventiScreen() {
           style={[
             styles.pulsantePrincipale,
             styles.pulsanteTrasferimento,
+            isLongPressingTrasferimento && styles.pulsantePressing,
             isTrasferimentoDisabled && styles.pulsanteDisabilitato
           ]}
-          onPress={mostraSelezioneHP}
+          onPressIn={handleLongPressStartTrasferimento}
+          onPressOut={handleLongPressEndTrasferimento}
           disabled={isTrasferimentoDisabled}
+          activeOpacity={0.8}
         >
-          <MaterialCommunityIcons 
+          <MaterialCommunityIcons
             name={'hospital-building' as any}
-            size={28} 
-            color="white" 
+            size={28}
+            color="white"
           />
           <Text style={styles.pulsanteText}>TRASFERIMENTO IN HP</Text>
-          <Text style={styles.pulsanteSubtext}>Seleziona Health Point</Text>
+          <Text style={[
+            styles.pulsanteSubtext,
+            isLongPressingTrasferimento && styles.pulsanteSubtextPressing
+          ]}>
+            {isLongPressingTrasferimento ? 'Rilascia per annullare' : 'Tieni premuto 2 secondi'}
+          </Text>
+          <View style={styles.progressContainer}>
+            <Animated.View
+              style={[
+                styles.progressBar,
+                {
+                  width: progressAnimTrasferimento.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0%', '100%']
+                  })
+                }
+              ]}
+            />
+          </View>
+          {isLongPressingTrasferimento && (
+            <View style={styles.pressingOverlay}>
+              <Text style={styles.pressingText}>
+                Tieni premuto...
+              </Text>
+            </View>
+          )}
         </TouchableOpacity>
       </View>
     );
@@ -552,7 +753,7 @@ export default function InterventiScreen() {
 
   // Renderizza intervento attivo
   const renderInterventoAttivo = () => {
-    if (!interventoAttivo) return null;
+    if (!interventoAttivo || (squadraAttuale.stato !== 'intervento' && squadraAttuale.stato !== 'trasferimento')) return null;
 
     const durata = Math.floor((Date.now() - new Date(interventoAttivo.timestampInizio).getTime()) / 1000 / 60);
 
@@ -562,7 +763,7 @@ export default function InterventiScreen() {
           <MaterialCommunityIcons name={'medical-bag' as any} size={24} color="#E30000" />
           <Text style={styles.interventoTitle}>Intervento in Corso</Text>
         </View>
-        
+
         <View style={styles.interventoDettagli}>
           <Text style={styles.interventoInfo}>
             📅 Iniziato: {new Date(interventoAttivo.timestampInizio).toLocaleTimeString()}
@@ -607,6 +808,8 @@ export default function InterventiScreen() {
       <View style={styles.istruzioniContainer}>
         <Text style={styles.istruzioniTitle}>📋 Istruzioni:</Text>
         <Text style={styles.istruzione}>• Premi e tieni premuto "INIZIO INTERVENTO" per 3 secondi</Text>
+        <Text style={styles.istruzione}>• Premi e tieni premuto "TERMINA INTERVENTO" per 2 secondi</Text>
+        <Text style={styles.istruzione}>• Premi e tieni premuto "TRASFERIMENTO IN HP" per 2 secondi</Text>
         <Text style={styles.istruzione}>• Durante un intervento puoi terminarlo o richiedere trasferimento</Text>
         <Text style={styles.istruzione}>• Tutti i volontari saranno notificati dei cambi stato</Text>
       </View>

@@ -59,6 +59,13 @@ export const getUserProfile = async (uid: string): Promise<UserProfile | null> =
 };
 
 /**
+ * ✅ FUNZIONE MANCANTE: Alias di getUserProfile per compatibilità
+ */
+export const getUserById = async (uid: string): Promise<UserProfile | null> => {
+  return getUserProfile(uid);
+};
+
+/**
  * Recupera tutti gli utenti (volontari e admin) da Firestore.
  */
 export const getAllUsers = async (): Promise<UserProfile[]> => {

@@ -1,22 +1,21 @@
-// src/services/eventService.ts
+// src/services/eventService.ts - CON CASCADING DELETE CORRETTO
 import { 
   collection, 
   addDoc, 
   getDocs, 
-  getDoc, // <--- Import necessario per getEventById efficiente
+  getDoc,
   doc, 
   updateDoc, 
   deleteDoc, 
   serverTimestamp, 
   query, 
   orderBy,
-  where,      // <--- IMPORT NECESSARIO per query condizionali (es. getAssegnazioniEvento)
-  writeBatch  // <--- IMPORT NECESSARIO per operazioni batch (es. setEventoAttivo, rimozione multipla)
+  where,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 
 // --- INTERFACCE ---
-
 export interface EventData {
   nomeEvento: string;
   localita: string;
@@ -27,8 +26,20 @@ export interface EventData {
   note?: string;
   createdBy: string;
   lastModifiedBy?: string;
-  eventoAttivo?: boolean; // Aggiunto per gestione evento attivo (come da tua logica in EventDetailScreen)
-  squadreConfigurate?: { id: string; nome: string; maxVolontari: number; }[]; // Aggiunto per le squadre configurate nell'evento
+  eventoAttivo?: boolean;
+  squadreConfigurate?: { id: string; nome: string; maxVolontari: number; }[];
+}
+
+// Interfaccia per documenti squadra dal database
+export interface SquadraDocument {
+  id: string;
+  nome: string;
+  eventoId: string;
+  membri: string[];
+  attiva?: boolean;
+  createdBy: string;
+  createdAt: any;
+  updatedAt: any;
 }
 
 export interface Event extends EventData {
@@ -38,19 +49,18 @@ export interface Event extends EventData {
 }
 
 export interface EventoAssegnazione {
-  id: string; // ID del documento di assegnazione in Firestore
+  id: string;
   eventId: string;
   userId: string;
   userName: string;
   userEmail: string;
-  squadraId: string; // Es. "SAP-001"
-  ruolo?: 'volontario' | 'coordinatore'; // Ruolo del volontario all'interno dell'assegnazione
+  squadraId: string;
+  ruolo?: 'volontario' | 'coordinatore';
   timestampAssegnazione: any; 
 }
 
 export type SquadreRaggruppate = Record<string, EventoAssegnazione[]>;
 
-// Interfaccia per un utente/volontario passato per l'assegnazione (usato in assegnaVolontarioASquadra)
 export interface Volontario {
   uid: string;
   nome: string;
@@ -59,12 +69,13 @@ export interface Volontario {
   role?: string; 
 }
 
-
 // --- NOMI COLLEZIONI ---
 const EVENTS_COLLECTION = 'events';
-const ASSEGNAZIONI_COLLECTION = 'assegnazioni'; // Collezione per le assegnazioni
+const SQUADRE_COLLECTION = 'squadre';
+const USERS_COLLECTION = 'users';
+const ASSEGNAZIONI_COLLECTION = 'assegnazioni';
 
-// --- FUNZIONI EVENTI ---
+// --- FUNZIONI EVENTI BASE ---
 
 /**
  * Crea un nuovo evento
@@ -126,25 +137,134 @@ export const updateEvent = async (
 };
 
 /**
- * Elimina un evento
+ * 🔥 ELIMINA EVENTO CON CASCADING DELETE COMPLETO
+ * Rimuove evento, squadre e tutte le assegnazioni correlate
  */
 export const deleteEvent = async (eventId: string): Promise<void> => {
   try {
-    await deleteDoc(doc(db, EVENTS_COLLECTION, eventId));
-    console.log('Evento eliminato:', eventId);
+    console.log('🗑️ Iniziando eliminazione cascading per evento:', eventId);
+
+    // STEP 1: Trova tutte le squadre associate all'evento
+    const squadreQuery = query(
+      collection(db, SQUADRE_COLLECTION), 
+      where('eventoId', '==', eventId)
+    );
+    const squadreSnapshot = await getDocs(squadreQuery);
+    console.log(`📋 Trovate ${squadreSnapshot.size} squadre da eliminare`);
+
+    // STEP 2: Raccogli tutti i volontari assegnati
+    const volontariDaLiberare = new Set<string>();
+    squadreSnapshot.forEach((squadraDoc) => {
+      const squadraData = squadraDoc.data() as SquadraDocument;
+      if (squadraData.membri && Array.isArray(squadraData.membri)) {
+        squadraData.membri.forEach((membroId: string) => {
+          volontariDaLiberare.add(membroId);
+        });
+      }
+    });
+
+    console.log(`👥 Trovati ${volontariDaLiberare.size} volontari da liberare`);
+
+    // STEP 3: Usa batch per operazioni atomiche
+    const batch = writeBatch(db);
+
+    // 3a. Elimina tutte le squadre dell'evento
+    squadreSnapshot.forEach((squadraDoc) => {
+      batch.delete(squadraDoc.ref);
+    });
+
+    // 3b. Rimuovi assegnazioni dai profili volontari
+    for (const volontarioId of volontariDaLiberare) {
+      const userRef = doc(db, USERS_COLLECTION, volontarioId);
+      batch.update(userRef, {
+        squadraAssegnata: null,
+        eventoAttivo: null,
+        updatedAt: serverTimestamp()
+      });
+    }
+
+    // 3c. Elimina l'evento stesso
+    const eventRef = doc(db, EVENTS_COLLECTION, eventId);
+    batch.delete(eventRef);
+
+    // STEP 4: Commit di tutte le operazioni
+    await batch.commit();
+
+    console.log('✅ Eliminazione cascading completata:', {
+      eventoEliminato: eventId,
+      squadreEliminate: squadreSnapshot.size,
+      volontariLiberati: volontariDaLiberare.size
+    });
+
   } catch (error) {
-    console.error('Errore nell\'eliminazione evento:', error);
-    throw new Error('Impossibile eliminare l\'evento');
+    console.error('❌ Errore nell\'eliminazione cascading evento:', error);
+    throw new Error('Impossibile eliminare l\'evento e le sue dipendenze');
   }
 };
 
 /**
- * Recupera un singolo evento per ID (corretto per usare getDoc per efficienza)
+ * 🧹 FUNZIONE DI PULIZIA - Rimuove solo assegnazioni senza eliminare squadre
+ */
+export const cleanEventAssignments = async (eventId: string): Promise<void> => {
+  try {
+    console.log('🧹 Pulendo assegnazioni per evento:', eventId);
+
+    // Trova squadre dell'evento
+    const squadreQuery = query(
+      collection(db, SQUADRE_COLLECTION), 
+      where('eventoId', '==', eventId)
+    );
+    const squadreSnapshot = await getDocs(squadreQuery);
+
+    // Raccogli volontari da liberare
+    const volontariDaLiberare = new Set<string>();
+    squadreSnapshot.forEach((squadraDoc) => {
+      const squadraData = squadraDoc.data() as SquadraDocument;
+      if (squadraData.membri && Array.isArray(squadraData.membri)) {
+        squadraData.membri.forEach((membroId: string) => {
+          volontariDaLiberare.add(membroId);
+        });
+      }
+    });
+
+    // Batch per liberare volontari e svuotare squadre
+    const batch = writeBatch(db);
+
+    // Libera volontari
+    for (const volontarioId of volontariDaLiberare) {
+      const userRef = doc(db, USERS_COLLECTION, volontarioId);
+      batch.update(userRef, {
+        squadraAssegnata: null,
+        eventoAttivo: null,
+        updatedAt: serverTimestamp()
+      });
+    }
+
+    // Svuota squadre ma non eliminarle
+    squadreSnapshot.forEach((squadraDoc) => {
+      batch.update(squadraDoc.ref, {
+        membri: [],
+        updatedAt: serverTimestamp()
+      });
+    });
+
+    await batch.commit();
+
+    console.log(`✅ Liberati ${volontariDaLiberare.size} volontari dall'evento ${eventId}`);
+
+  } catch (error) {
+    console.error('❌ Errore pulizia assegnazioni:', error);
+    throw new Error('Impossibile pulire le assegnazioni dell\'evento');
+  }
+};
+
+/**
+ * Recupera un singolo evento per ID
  */
 export const getEventById = async (eventId: string): Promise<Event | null> => {
   try {
     const eventRef = doc(db, EVENTS_COLLECTION, eventId);
-    const docSnap = await getDoc(eventRef); // <--- CORREZIONE: Usa getDoc per ID singolo
+    const docSnap = await getDoc(eventRef);
     if (docSnap.exists()) {
       return { id: docSnap.id, ...docSnap.data() } as Event;
     }
@@ -155,12 +275,85 @@ export const getEventById = async (eventId: string): Promise<Event | null> => {
   }
 };
 
-
-// --- NUOVE FUNZIONI (necessarie per EventDetailScreen e VolunteerSelectionScreen) ---
-
 /**
- * Imposta un evento come attivo (e disattiva gli altri)
+ * 🔍 DIAGNOSTICA - Verifica stato assegnazioni per un evento
  */
+export const diagnoseEventAssignments = async (eventId: string): Promise<{
+  evento: Event | null;
+  squadre: SquadraDocument[];
+  volontariAssegnati: string[];
+  problemi: string[];
+}> => {
+  try {
+    console.log('🔍 Diagnosticando assegnazioni per evento:', eventId);
+
+    const problemi: string[] = [];
+
+    // Recupera evento
+    const evento = await getEventById(eventId);
+    if (!evento) {
+      problemi.push('Evento non trovato');
+    }
+
+    // Recupera squadre
+    const squadreQuery = query(
+      collection(db, SQUADRE_COLLECTION), 
+      where('eventoId', '==', eventId)
+    );
+    const squadreSnapshot = await getDocs(squadreQuery);
+    const squadre = squadreSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as SquadraDocument));
+
+    // Raccogli volontari assegnati
+    const volontariAssegnati = new Set<string>();
+    squadre.forEach(squadra => {
+      if (squadra.membri && Array.isArray(squadra.membri)) {
+        squadra.membri.forEach((membroId: string) => {
+          volontariAssegnati.add(membroId);
+        });
+      }
+    });
+
+    // Verifica coerenza volontari
+    for (const volontarioId of volontariAssegnati) {
+      try {
+        const userRef = doc(db, USERS_COLLECTION, volontarioId);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          if (userData.eventoAttivo !== eventId) {
+            problemi.push(`Volontario ${volontarioId} assegnato a squadra ma eventoAttivo è ${userData.eventoAttivo}`);
+          }
+        } else {
+          problemi.push(`Volontario ${volontarioId} non esiste ma è assegnato a squadra`);
+        }
+      } catch (error) {
+        problemi.push(`Errore verifica volontario ${volontarioId}: ${error}`);
+      }
+    }
+
+    return {
+      evento,
+      squadre,
+      volontariAssegnati: Array.from(volontariAssegnati),
+      problemi
+    };
+
+  } catch (error) {
+    console.error('❌ Errore diagnostica:', error);
+    return {
+      evento: null,
+      squadre: [] as SquadraDocument[],
+      volontariAssegnati: [],
+      problemi: [`Errore diagnostica: ${error}`]
+    };
+  }
+};
+
+// --- FUNZIONI ASSEGNAZIONI (mantenute per compatibilità) ---
+
 export const setEventoAttivo = async (eventIdToActivate: string): Promise<void> => {
   const batch = writeBatch(db);
   try {
@@ -180,9 +373,6 @@ export const setEventoAttivo = async (eventIdToActivate: string): Promise<void> 
   }
 };
 
-/**
- * Recupera tutte le assegnazioni per un evento specifico.
- */
 export const getAssegnazioniEvento = async (eventId: string): Promise<EventoAssegnazione[]> => {
   try {
     const q = query(collection(db, ASSEGNAZIONI_COLLECTION), where('eventId', '==', eventId));
@@ -198,9 +388,6 @@ export const getAssegnazioniEvento = async (eventId: string): Promise<EventoAsse
   }
 };
 
-/**
- * Raggruppa le assegnazioni per ID squadra per un evento specifico.
- */
 export const getSquadreConAssegnazioni = async (eventId: string): Promise<SquadreRaggruppate> => {
   try {
     const assegnazioni = await getAssegnazioniEvento(eventId);
@@ -222,10 +409,6 @@ export const getSquadreConAssegnazioni = async (eventId: string): Promise<Squadr
   }
 };
 
-/**
- * Configura squadre standard per un evento (crea/aggiorna campo nell'evento).
- * Crea un array di oggetti squadra e lo salva nel campo 'squadreConfigurate' dell'evento.
- */
 export const configuraSquadreStandard = async (eventId: string, numeroSquadre: number): Promise<void> => {
   const eventRef = doc(db, EVENTS_COLLECTION, eventId);
   const squadreConfigurate: { id: string; nome: string; maxVolontari: number; }[] = [];
@@ -249,9 +432,6 @@ export const configuraSquadreStandard = async (eventId: string, numeroSquadre: n
   }
 };
 
-/**
- * Assegna un volontario a una squadra per un evento.
- */
 export const assegnaVolontarioASquadra = async (
   eventId: string, 
   squadraId: string, 
@@ -274,10 +454,6 @@ export const assegnaVolontarioASquadra = async (
   }
 };
 
-/**
- * Rimuove un volontario da un'assegnazione specifica per un evento.
- * Richiede l'ID del documento di assegnazione da eliminare.
- */
 export const rimuoviVolontarioDaAssegnazione = async (assegnazioneId: string): Promise<void> => {
   try {
     await deleteDoc(doc(db, ASSEGNAZIONI_COLLECTION, assegnazioneId));
@@ -288,9 +464,6 @@ export const rimuoviVolontarioDaAssegnazione = async (assegnazioneId: string): P
   }
 };
 
-/**
- * Rimuove TUTTE le assegnazioni di un dato volontario da un evento.
- */
 export const rimuoviVolontarioDaEvento = async (eventId: string, userId: string): Promise<void> => {
   try {
     const q = query(

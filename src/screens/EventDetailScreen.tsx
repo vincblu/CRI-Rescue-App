@@ -1,733 +1,830 @@
-// src/screens/EventDetailScreen.tsx - OTTIMIZZATO PER TASTIERA
-import React, { useState, useEffect } from 'react';
+// src/screens/EventDetailScreen.tsx - UI MIGLIORATA
+import React, { useState, useEffect, useLayoutEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
-  SafeAreaView,
   TextInput,
   TouchableOpacity,
+  StyleSheet,
   Alert,
-  ActivityIndicator,
-  Platform
+  ScrollView,
+  ActivityIndicator
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
-import KeyboardAwareWrapper from '../components/KeyboardAwareWrapper'; // IMPORTA WRAPPER
+import { useAuth, usePermissions } from '../context/AuthContext';
+import { getUserById } from '../services/userService';
+import { updateEvent, deleteEvent } from '../services/eventService';
+import type { EventDetailScreenProps } from '../types/navigation';
 
-// Services & Context
-import { 
-  updateEvent, 
-  deleteEvent,
-  Event, 
-  setEventoAttivo, 
-  getAssegnazioniEvento, 
-  getSquadreConAssegnazioni,
-  configuraSquadreStandard,
-  EventoAssegnazione
-} from '../services/eventService';
-import { useAuth, usePermissions, AdminOnly } from '../context/AuthContext';
-
-// Types
-import { AppStackParamList, AppNavigation } from '../types/navigation';
-
-type EventDetailRouteProp = RouteProp<AppStackParamList, 'EventDetail'>;
-
-const EventDetailScreen: React.FC = () => {
-  const route = useRoute<EventDetailRouteProp>();
-  const navigation = useNavigation<AppNavigation>();
-  const { currentUser } = useAuth();
-  const { 
-    isAdmin, 
-    canModifyEvents, 
-    nome, 
-    cognome 
-  } = usePermissions();
-
-  // Dati evento da parametri
+const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, navigation }) => {
   const { eventId, event: initialEvent } = route.params;
+  const { user } = useAuth();
+  const permissions = usePermissions();
+  
+  // ==================== STATE ====================
+  const [loading, setLoading] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [userData, setUserData] = useState<any>(null);
+  
+  // Event data state
+  const [event, setEvent] = useState(initialEvent || {
+    nomeEvento: '',
+    localita: '',
+    dataEvento: '',
+    oraInizio: '',
+    oraFine: '',
+    livello: 'Low' as 'Low' | 'Medium' | 'High',
+    note: ''
+  });
 
-  // Stati componente
-  const [event, setEvent] = useState<Event | null>(initialEvent || null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  // ==================== NAVIGATION HEADER CONFIG ====================
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerShown: false, // 🚫 NASCONDE la header di React Navigation
+    });
+  }, [navigation]);
 
-  // Stati per gestione volontari
-  const [assegnazioni, setAssegnazioni] = useState<EventoAssegnazione[]>([]);
-  const [squadreRaggruppate, setSquadreRaggruppate] = useState<Record<string, EventoAssegnazione[]>>({});
-  const [loadingAssegnazioni, setLoadingAssegnazioni] = useState(false);
-
-  // Stati form modifica
-  const [nomeEvento, setNomeEvento] = useState('');
-  const [localita, setLocalita] = useState('');
-  const [dataEvento, setDataEvento] = useState('');
-  const [oraInizio, setOraInizio] = useState('');
-  const [oraFine, setOraFine] = useState('');
-  const [livello, setLivello] = useState<'Low' | 'Medium' | 'High'>('Low');
-  const [note, setNote] = useState('');
-
-  // Inizializzazione dati
+  // ==================== EFFECTS ====================
   useEffect(() => {
-    if (event) {
-      console.log('📋 Caricamento dettagli evento:', event.id);
-      setNomeEvento(event.nomeEvento || '');
-      setLocalita(event.localita || '');
-      setDataEvento(event.dataEvento || '');
-      setOraInizio(event.oraInizio || '');
-      setOraFine(event.oraFine || '');
-      setLivello(event.livello || 'Low');
-      setNote(event.note || '');
+    loadUserData();
+  }, [user]);
 
-      if (isAdmin) {
-        loadAssegnazioni();
-      }
-    }
-  }, [event, isAdmin]);
-
-  // Carica assegnazioni volontari
-  const loadAssegnazioni = async () => {
+  // ==================== DATA LOADING ====================
+  const loadUserData = async () => {
+    if (!user?.uid) return;
+    
     try {
-      setLoadingAssegnazioni(true);
-      
-      const [assegnazioniData, squadreData] = await Promise.all([
-        getAssegnazioniEvento(eventId),
-        getSquadreConAssegnazioni(eventId)
-      ]);
-
-      setAssegnazioni(assegnazioniData);
-      setSquadreRaggruppate(squadreData);
-      
-      console.log('👥 Assegnazioni caricate:', assegnazioniData.length);
-
+      const userInfo = await getUserById(user.uid);
+      setUserData(userInfo);
     } catch (error) {
-      console.error('❌ Errore caricamento assegnazioni:', error);
-    } finally {
-      setLoadingAssegnazioni(false);
+      console.error('❌ Error loading user data:', error);
+      // Fallback con dati minimi per evitare errori
+      setUserData({
+        nome: user.email?.split('@')[0] || 'User',
+        cognome: 'CRI',
+        role: 'user'
+      });
     }
   };
 
-  // Avvia modifica (solo admin)
-  const startEditing = () => {
-    if (!canModifyEvents) {
-      Alert.alert('Accesso Negato', 'Non hai i permessi per modificare questo evento');
-      return;
-    }
-    setIsEditing(true);
-  };
-
-  // Annulla modifiche
-  const cancelEditing = () => {
-    if (!event) return;
+  // ==================== UTILITY FUNCTIONS ====================
+  const formatDateInput = (text: string) => {
+    // Rimuove caratteri non numerici
+    const cleaned = text.replace(/\D/g, '');
     
-    setNomeEvento(event.nomeEvento || '');
-    setLocalita(event.localita || '');
-    setDataEvento(event.dataEvento || '');
-    setOraInizio(event.oraInizio || '');
-    setOraFine(event.oraFine || '');
-    setLivello(event.livello || 'Low');
-    setNote(event.note || '');
+    // Applica formato DD/MM/YYYY
+    if (cleaned.length >= 2) {
+      const day = cleaned.substring(0, 2);
+      const month = cleaned.substring(2, 4);
+      const year = cleaned.substring(4, 8);
+      
+      if (cleaned.length <= 2) return day;
+      if (cleaned.length <= 4) return `${day}/${month}`;
+      return `${day}/${month}/${year}`;
+    }
     
-    setIsEditing(false);
+    return cleaned;
   };
 
-  // Salva modifiche
-  const saveChanges = async () => {
-    if (!canModifyEvents) {
-      Alert.alert('Accesso Negato', 'Non hai i permessi per salvare modifiche');
-      return;
+  const formatTimeInput = (text: string) => {
+    // Rimuove caratteri non numerici
+    const cleaned = text.replace(/\D/g, '');
+    
+    // Applica formato HH:MM con gestione intelligente
+    if (cleaned.length === 0) return '';
+    if (cleaned.length === 1) return cleaned;
+    if (cleaned.length === 2) return cleaned;
+    if (cleaned.length === 3) {
+      // ✅ 123 → 12:30 (aggiunge zero finale)
+      const hours = cleaned.substring(0, 2);
+      const minute = cleaned.substring(2, 3);
+      return `${hours}:${minute}0`;
     }
+    if (cleaned.length >= 4) {
+      // ✅ 1234 → 12:34 (formato completo)
+      const hours = cleaned.substring(0, 2);
+      const minutes = cleaned.substring(2, 4);
+      return `${hours}:${minutes}`;
+    }
+    
+    return cleaned;
+  };
 
-    if (!nomeEvento.trim() || !localita.trim()) {
+  // ==================== HANDLERS ====================
+  const handleSave = async () => {
+    if (!event.nomeEvento.trim() || !event.localita.trim()) {
       Alert.alert('Errore', 'Nome evento e località sono obbligatori');
       return;
     }
 
-    try {
-      setSaving(true);
-      console.log('💾 Salvataggio modifiche evento:', eventId);
+    if (!permissions.canModifyEvents) {
+      Alert.alert('Errore', 'Non hai i permessi per modificare eventi');
+      return;
+    }
 
+    setLoading(true);
+    
+    try {
       const updateData = {
-        nomeEvento: nomeEvento.trim(),
-        localita: localita.trim(),
-        dataEvento: dataEvento.trim(),
-        oraInizio: oraInizio.trim(),
-        oraFine: oraFine.trim(),
-        livello,
-        note: note.trim(),
-        lastModifiedBy: currentUser?.email || 'Unknown'
+        ...event,
+        lastModifiedBy: userData?.nome && userData?.cognome 
+          ? `${userData.nome} ${userData.cognome}`
+          : user?.email || 'Unknown'
       };
 
       await updateEvent(eventId, updateData);
-
-      const updatedEvent = {
-        ...event!,
-        ...updateData
-      };
-      setEvent(updatedEvent);
-      setIsEditing(false);
-
-      console.log('✅ Evento salvato con successo');
-      Alert.alert('Successo', 'Modifiche salvate con successo!');
-
-    } catch (error) {
-      console.error('❌ Errore salvataggio:', error);
-      Alert.alert('Errore', 'Impossibile salvare le modifiche');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Funzione per cancellare evento
-  const handleDeleteEvent = () => {
-    if (!canModifyEvents) {
-      Alert.alert('Accesso Negato', 'Non hai i permessi per cancellare questo evento');
-      return;
-    }
-
-    if (assegnazioni.length > 0) {
-      Alert.alert(
-        '⚠️ Attenzione',
-        `Ci sono ${assegnazioni.length} volontari assegnati a questo evento.\n\nPer continuare con la cancellazione, dovrai prima rimuovere tutte le assegnazioni.`,
-        [
-          { text: 'Annulla', style: 'cancel' },
-          { 
-            text: 'Cancella Comunque', 
-            style: 'destructive',
-            onPress: () => confirmDeleteEvent() 
+      
+      Alert.alert('✅ Successo', 'Evento aggiornato correttamente', [
+        { 
+          text: 'OK', 
+          onPress: () => {
+            setEditMode(false);
+            navigation.goBack();
           }
-        ]
-      );
+        }
+      ]);
+      
+    } catch (error) {
+      console.error('❌ Error updating event:', error);
+      Alert.alert('❌ Errore', 'Impossibile aggiornare l\'evento');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = () => {
+    if (!permissions.canModifyEvents) {
+      Alert.alert('Errore', 'Non hai i permessi per eliminare eventi');
       return;
     }
 
-    confirmDeleteEvent();
-  };
-
-  // Conferma cancellazione evento
-  const confirmDeleteEvent = () => {
     Alert.alert(
-      '🗑️ CANCELLA EVENTO',
-      `Sei SICURO di voler cancellare definitivamente l'evento:\n\n"${event?.nomeEvento}"\n\n⚠️ QUESTA AZIONE NON PUÒ ESSERE ANNULLATA!`,
+      'Conferma Eliminazione',
+      'Sei sicuro di voler eliminare questo evento? Questa azione non può essere annullata.',
       [
         { text: 'Annulla', style: 'cancel' },
-        { text: '🗑️ CANCELLA DEFINITIVAMENTE', style: 'destructive', onPress: executeDeleteEvent }
-      ],
-      { cancelable: true }
+        { 
+          text: 'Elimina', 
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              await deleteEvent(eventId);
+              Alert.alert('✅ Successo', 'Evento eliminato correttamente');
+              navigation.goBack();
+            } catch (error) {
+              console.error('❌ Error deleting event:', error);
+              Alert.alert('❌ Errore', 'Impossibile eliminare l\'evento');
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
     );
   };
 
-  // Esegui cancellazione evento
-  const executeDeleteEvent = async () => {
-    try {
-      setDeleting(true);
-      console.log('🗑️ Cancellazione evento:', eventId);
-
-      await deleteEvent(eventId);
-
-      console.log('✅ Evento cancellato con successo');
-      
-      Alert.alert(
-        '✅ Evento Cancellato',
-        `L'evento "${event?.nomeEvento}" è stato cancellato definitivamente.`,
-        [{ text: 'OK', onPress: () => navigation.navigate('HomeMain') }]
-      );
-
-    } catch (error) {
-      console.error('❌ Errore cancellazione evento:', error);
-      Alert.alert('Errore Cancellazione', 'Impossibile cancellare l\'evento. Riprova più tardi.');
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  // Navigazione configurazione squadre
-  const navigateToTeamConfig = () => {
-    if (!canModifyEvents) {
-      Alert.alert('Accesso Negato', 'Funzionalità riservata ai responsabili');
-      return;
-    }
+  const handleTeamConfiguration = () => {
     navigation.navigate('TeamConfiguration', { eventId });
   };
 
-  // Colore livello
-  const getLevelColor = (level: string) => {
-    switch (level) {
-      case 'Low': return '#28A745';
-      case 'Medium': return '#FFA500';
-      case 'High': return '#E30000';
-      default: return '#6C757D';
-    }
-  };
+  // ==================== RENDER HELPERS ====================
+  const renderField = (
+    label: string,
+    value: string,
+    onChangeText: (text: string) => void,
+    placeholder?: string,
+    multiline?: boolean,
+    keyboardType?: 'default' | 'numeric' | 'phone-pad',
+    maxLength?: number
+  ) => (
+    <View style={styles.fieldContainer}>
+      <View style={styles.fieldLabelContainer}>
+        <Text style={styles.fieldLabel}>{label}</Text>
+        {editMode && permissions.canModifyEvents && (
+          <MaterialCommunityIcons 
+            name="pencil" 
+            size={14} 
+            color="#E30000" 
+            style={styles.editIcon}
+          />
+        )}
+      </View>
+      <TextInput
+        style={[
+          styles.fieldInput,
+          multiline && styles.fieldInputMultiline,
+          editMode && permissions.canModifyEvents && styles.fieldInputEditing,
+          !editMode && styles.fieldInputReadonly
+        ]}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#999"
+        editable={editMode && permissions.canModifyEvents}
+        multiline={multiline}
+        numberOfLines={multiline ? 3 : 1}
+        keyboardType={keyboardType}
+        maxLength={maxLength}
+      />
+    </View>
+  );
 
-  if (!event) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#E30000" />
-          <Text style={styles.loadingText}>Caricamento evento...</Text>
+  const renderDateTimeRow = () => (
+    <View style={styles.dateTimeContainer}>
+      <Text style={styles.sectionTitle}>📅 Programmazione Evento</Text>
+      
+      <View style={styles.dateTimeRow}>
+        {/* Data Evento - PIÙ LARGA */}
+        <View style={[styles.dateTimeField, styles.dateFieldWide]}>
+          <View style={styles.fieldLabelContainer}>
+            <Text style={styles.fieldLabel}>Data *</Text>
+            {editMode && permissions.canModifyEvents && (
+              <MaterialCommunityIcons name="calendar" size={14} color="#E30000" />
+            )}
+          </View>
+          <TextInput
+            style={[
+              styles.fieldInput,
+              styles.dateTimeInput,
+              editMode && permissions.canModifyEvents && styles.fieldInputEditing,
+              !editMode && styles.fieldInputReadonly
+            ]}
+            value={event.dataEvento || ''}
+            onChangeText={(text) => setEvent({ ...event, dataEvento: formatDateInput(text) })}
+            placeholder="DD/MM/YYYY"
+            placeholderTextColor="#999"
+            editable={editMode && permissions.canModifyEvents}
+            keyboardType="numeric"
+            maxLength={10}
+          />
         </View>
-      </SafeAreaView>
+
+        {/* Ora Inizio - PIÙ STRETTA */}
+        <View style={[styles.dateTimeField, styles.timeFieldNarrow]}>
+          <View style={styles.fieldLabelContainer}>
+            <Text style={styles.fieldLabel}>Inizio</Text>
+            {editMode && permissions.canModifyEvents && (
+              <MaterialCommunityIcons name="clock-start" size={14} color="#E30000" />
+            )}
+          </View>
+          <TextInput
+            style={[
+              styles.fieldInput,
+              styles.dateTimeInput,
+              editMode && permissions.canModifyEvents && styles.fieldInputEditing,
+              !editMode && styles.fieldInputReadonly
+            ]}
+            value={event.oraInizio || ''}
+            onChangeText={(text) => setEvent({ ...event, oraInizio: formatTimeInput(text) })}
+            placeholder="HH:MM"
+            placeholderTextColor="#999"
+            editable={editMode && permissions.canModifyEvents}
+            keyboardType="numeric"
+            maxLength={5}
+          />
+        </View>
+
+        {/* Ora Fine - PIÙ STRETTA */}
+        <View style={[styles.dateTimeField, styles.timeFieldNarrow]}>
+          <View style={styles.fieldLabelContainer}>
+            <Text style={styles.fieldLabel}>Fine</Text>
+            {editMode && permissions.canModifyEvents && (
+              <MaterialCommunityIcons name="clock-end" size={14} color="#E30000" />
+            )}
+          </View>
+          <TextInput
+            style={[
+              styles.fieldInput,
+              styles.dateTimeInput,
+              editMode && permissions.canModifyEvents && styles.fieldInputEditing,
+              !editMode && styles.fieldInputReadonly
+            ]}
+            value={event.oraFine || ''}
+            onChangeText={(text) => setEvent({ ...event, oraFine: formatTimeInput(text) })}
+            placeholder="HH:MM"
+            placeholderTextColor="#999"
+            editable={editMode && permissions.canModifyEvents}
+            keyboardType="numeric"
+            maxLength={5}
+          />
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderLevelPicker = () => (
+    <View style={styles.fieldContainer}>
+      <View style={styles.fieldLabelContainer}>
+        <Text style={styles.fieldLabel}>Livello Complessità</Text>
+        {editMode && permissions.canModifyEvents && (
+          <MaterialCommunityIcons name="alert-circle" size={14} color="#E30000" />
+        )}
+      </View>
+      <View style={styles.levelContainer}>
+        {(['Low', 'Medium', 'High'] as const).map((level) => (
+          <TouchableOpacity
+            key={level}
+            style={[
+              styles.levelButton,
+              event.livello === level && styles.levelButtonActive,
+              (!editMode || !permissions.canModifyEvents) && styles.levelButtonDisabled,
+              editMode && permissions.canModifyEvents && styles.levelButtonEditing
+            ]}
+            onPress={() => editMode && permissions.canModifyEvents && setEvent({ ...event, livello: level })}
+            disabled={!editMode || !permissions.canModifyEvents}
+          >
+            <Text style={[
+              styles.levelButtonText,
+              event.livello === level && styles.levelButtonTextActive
+            ]}>
+              {level}
+            </Text>
+            {event.livello === level && (
+              <MaterialCommunityIcons name="check" size={16} color="white" />
+            )}
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+
+  // ==================== MAIN RENDER ====================
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#E30000" />
+        <Text style={styles.loadingText}>Operazione in corso...</Text>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAwareWrapper 
-        style={styles.wrapper}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
-      >
-        {/* Header permessi */}
-        <View style={styles.permissionsBanner}>
-          <Text style={styles.permissionsText}>
-            {isAdmin ? '👑 Modalità Responsabile' : '👁️ Modalità Visualizzazione'} - {nome} {cognome}
-          </Text>
+    <View style={styles.container}>
+      {/* 🔴 HEADER COMPATTA ROSSA */}
+      <View style={styles.header}>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <MaterialCommunityIcons name="arrow-left" size={24} color="white" />
+        </TouchableOpacity>
+        
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.headerTitle}>Dettaglio Evento</Text>
+          {editMode && (
+            <View style={styles.editModeIndicator}>
+              <MaterialCommunityIcons name="pencil" size={12} color="white" />
+              <Text style={styles.editModeText}>MODIFICA</Text>
+            </View>
+          )}
         </View>
+        
+        {permissions.canModifyEvents && (
+          <TouchableOpacity
+            style={[styles.editButton, editMode && styles.editButtonActive]}
+            onPress={() => setEditMode(!editMode)}
+          >
+            <MaterialCommunityIcons 
+              name={editMode ? "check" : "pencil"} 
+              size={20} 
+              color="white" 
+            />
+          </TouchableOpacity>
+        )}
+      </View>
 
-        {/* Contenuto principale */}
-        <View style={styles.content}>
-          
-          {/* Informazioni base */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>📋 Informazioni Evento</Text>
-            
-            <View style={styles.field}>
-              <Text style={styles.label}>Nome Evento *</Text>
-              {isEditing ? (
-                <TextInput
-                  style={styles.input}
-                  value={nomeEvento}
-                  onChangeText={setNomeEvento}
-                  placeholder="Inserisci nome evento"
-                  returnKeyType="next"
-                />
-              ) : (
-                <Text style={styles.value}>{event.nomeEvento}</Text>
-              )}
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Località *</Text>
-              {isEditing ? (
-                <TextInput
-                  style={styles.input}
-                  value={localita}
-                  onChangeText={setLocalita}
-                  placeholder="Inserisci località"
-                  returnKeyType="next"
-                />
-              ) : (
-                <Text style={styles.value}>{event.localita}</Text>
-              )}
-            </View>
-
-            <View style={styles.row}>
-              <View style={[styles.field, styles.halfField]}>
-                <Text style={styles.label}>Data Evento</Text>
-                {isEditing ? (
-                  <TextInput
-                    style={styles.input}
-                    value={dataEvento}
-                    onChangeText={setDataEvento}
-                    placeholder="gg/mm/aaaa"
-                    returnKeyType="next"
-                  />
-                ) : (
-                  <Text style={styles.value}>{event.dataEvento || 'Non specificata'}</Text>
-                )}
-              </View>
-
-              <View style={[styles.field, styles.halfField]}>
-                <Text style={styles.label}>Livello</Text>
-                {isEditing ? (
-                  <View style={styles.levelContainer}>
-                    {(['Low', 'Medium', 'High'] as const).map((level) => (
-                      <TouchableOpacity
-                        key={level}
-                        style={[
-                          styles.levelButton,
-                          { backgroundColor: livello === level ? getLevelColor(level) : '#F0F0F0' }
-                        ]}
-                        onPress={() => setLivello(level)}
-                      >
-                        <Text style={[
-                          styles.levelButtonText,
-                          { color: livello === level ? 'white' : '#333' }
-                        ]}>
-                          {level}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                ) : (
-                  <View style={[styles.levelBadge, { backgroundColor: getLevelColor(event.livello || 'Low') }]}>
-                    <Text style={styles.levelText}>{event.livello || 'Low'}</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-
-            <View style={styles.row}>
-              <View style={[styles.field, styles.halfField]}>
-                <Text style={styles.label}>Ora Inizio</Text>
-                {isEditing ? (
-                  <TextInput
-                    style={styles.input}
-                    value={oraInizio}
-                    onChangeText={setOraInizio}
-                    placeholder="hh:mm"
-                    returnKeyType="next"
-                  />
-                ) : (
-                  <Text style={styles.value}>{event.oraInizio || 'Non specificata'}</Text>
-                )}
-              </View>
-
-              <View style={[styles.field, styles.halfField]}>
-                <Text style={styles.label}>Ora Fine</Text>
-                {isEditing ? (
-                  <TextInput
-                    style={styles.input}
-                    value={oraFine}
-                    onChangeText={setOraFine}
-                    placeholder="hh:mm"
-                    returnKeyType="next"
-                  />
-                ) : (
-                  <Text style={styles.value}>{event.oraFine || 'Non specificata'}</Text>
-                )}
-              </View>
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Note</Text>
-              {isEditing ? (
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  value={note}
-                  onChangeText={setNote}
-                  placeholder="Note aggiuntive..."
-                  multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
-                  returnKeyType="done"
-                />
-              ) : (
-                <Text style={styles.value}>{event.note || 'Nessuna nota'}</Text>
-              )}
-            </View>
+      {/* Content */}
+      <ScrollView style={styles.scrollContent}>
+        {/* Modalità Edit Alert */}
+        {editMode && permissions.canModifyEvents && (
+          <View style={styles.editAlert}>
+            <MaterialCommunityIcons name="information" size={20} color="#E30000" />
+            <Text style={styles.editAlertText}>
+              Modalità modifica attiva. I campi sono ora editabili.
+            </Text>
           </View>
+        )}
 
-          {/* Sezione configurazione squadre - solo admin */}
-          <AdminOnly>
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>⚙️ Configurazione</Text>
-              
-              <TouchableOpacity
-                style={styles.configButton}
-                onPress={navigateToTeamConfig}
-              >
-                <MaterialCommunityIcons name="cog" size={24} color="#E30000" />
-                <View style={styles.configButtonContent}>
-                  <Text style={styles.configButtonTitle}>Configurazioni Tecniche</Text>
-                  <Text style={styles.configButtonSubtitle}>Squadre, Health Points e impostazioni</Text>
-                </View>
-                <MaterialCommunityIcons name="chevron-right" size={24} color="#999" />
-              </TouchableOpacity>
-            </View>
-          </AdminOnly>
+        {/* Form Fields */}
+        <View style={styles.formContainer}>
+          {renderField(
+            'Nome Evento *',
+            event.nomeEvento,
+            (text) => setEvent({ ...event, nomeEvento: text }),
+            'Es: Concerto Estate 2024'
+          )}
 
-          {/* Zona Pericolosa - CANCELLAZIONE EVENTO */}
-          <AdminOnly>
-            <View style={[styles.section, styles.dangerZone]}>
-              <View style={styles.dangerZoneHeader}>
-                <MaterialCommunityIcons name="alert-circle" size={24} color="#E30000" />
-                <Text style={styles.dangerZoneTitle}>⚠️ Zona Pericolosa</Text>
-              </View>
-              
-              <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={handleDeleteEvent}
-                disabled={deleting}
-                activeOpacity={0.8}
-              >
-                {deleting ? (
-                  <ActivityIndicator size="small" color="white" />
-                ) : (
-                  <>
-                    <MaterialCommunityIcons name="delete-forever" size={20} color="white" />
-                    <Text style={styles.deleteButtonText}>CANCELLA EVENTO</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </AdminOnly>
+          {renderField(
+            'Località *',
+            event.localita,
+            (text) => setEvent({ ...event, localita: text }),
+            'Es: Piazza del Comune, Napoli'
+          )}
 
-          {/* Spacer finale per garantire scroll */}
-          <View style={styles.bottomSpacer} />
+          {renderDateTimeRow()}
+
+          {renderLevelPicker()}
+
+          {renderField(
+            'Note Aggiuntive',
+            event.note || '',
+            (text) => setEvent({ ...event, note: text }),
+            'Inserisci informazioni aggiuntive per l\'evento...',
+            true
+          )}
         </View>
 
-        {/* Pulsanti azione - solo admin */}
-        <AdminOnly>
-          <View style={styles.actionButtons}>
-            {isEditing ? (
-              <View style={styles.editingButtons}>
-                <TouchableOpacity
-                  style={[styles.button, styles.cancelButton]}
-                  onPress={cancelEditing}
-                  disabled={saving}
-                >
-                  <Text style={styles.cancelButtonText}>Annulla</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.button, styles.saveButton]}
-                  onPress={saveChanges}
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <ActivityIndicator size="small" color="white" />
-                  ) : (
-                    <Text style={styles.saveButtonText}>Salva</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            ) : (
+        {/* Action Buttons */}
+        {permissions.canModifyEvents && (
+          <View style={styles.actionContainer}>
+            {editMode && (
               <TouchableOpacity
-                style={[styles.button, styles.editButton]}
-                onPress={startEditing}
-                activeOpacity={0.8}
+                style={styles.saveButton}
+                onPress={handleSave}
+                disabled={loading}
               >
-                <View style={styles.editButtonContent}>
-                  <MaterialCommunityIcons name="pencil" size={20} color="white" />
-                  <Text style={styles.editButtonText}>Modifica Evento</Text>
-                </View>
+                <MaterialCommunityIcons name="content-save" size={20} color="white" />
+                <Text style={styles.saveButtonText}>Salva Modifiche</Text>
               </TouchableOpacity>
             )}
+
+            <TouchableOpacity
+              style={styles.teamButton}
+              onPress={handleTeamConfiguration}
+            >
+              <MaterialCommunityIcons name="account-group" size={20} color="white" />
+              <Text style={styles.teamButtonText}>Configura Squadre</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={handleDelete}
+              disabled={loading}
+            >
+              <MaterialCommunityIcons name="delete" size={20} color="white" />
+              <Text style={styles.deleteButtonText}>Elimina Evento</Text>
+            </TouchableOpacity>
           </View>
-        </AdminOnly>
-      </KeyboardAwareWrapper>
-    </SafeAreaView>
+        )}
+
+        {/* Info Section */}
+        <View style={styles.infoContainer}>
+          <Text style={styles.infoTitle}>Informazioni Evento</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>ID Evento:</Text>
+            <Text style={styles.infoValue}>{eventId}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Ultima Modifica:</Text>
+            <Text style={styles.infoValue}>
+              {userData?.nome && userData?.cognome 
+                ? `${userData.nome} ${userData.cognome}`
+                : user?.email || 'N/A'
+              }
+            </Text>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
   );
 };
 
-// Mantieni tutti i tuoi styles esistenti...
+// ==================== STYLES ====================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8F9FA',
   },
-  wrapper: {
-    flex: 1,
-  },
+  
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#F8F9FA',
   },
+  
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#666',
+    color: '#6C757D',
   },
-  content: {
-    flex: 1,
+
+  // 🔴 HEADER SUPER-COMPATTA ROSSA
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-  },
-  permissionsBanner: {
-    backgroundColor: '#E8F4FD',
-    padding: 12,
+    paddingVertical: 4, // ✅ ULTRA-RIDOTTO da 6 a 4
+    paddingTop: 46, // ✅ MINIMO per safe area
+    backgroundColor: '#E30000',
     borderBottomWidth: 1,
-    borderBottomColor: '#DDD',
-  },
-  permissionsText: {
-    fontSize: 14,
-    color: '#1976D2',
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  section: {
-    backgroundColor: 'white',
-    marginVertical: 8,
-    padding: 16,
-    borderRadius: 8,
+    borderBottomColor: '#B91C1C',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
-  sectionTitle: {
+
+  backButton: {
+    padding: 8,
+    borderRadius: 20,
+  },
+
+  headerTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
+
+  headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16,
+    color: 'white',
   },
-  dangerZone: {
+
+  // ✅ INDICATORE MODALITÀ EDIT
+  editModeIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+    gap: 4,
+  },
+
+  editModeText: {
+    fontSize: 10,
+    color: 'white',
+    fontWeight: '600',
+  },
+
+  editButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+
+  editButtonActive: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+
+  // ✅ ALERT MODALITÀ EDIT
+  editAlert: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    padding: 12,
+    margin: 16,
+    borderRadius: 8,
     borderLeftWidth: 4,
     borderLeftColor: '#E30000',
-    backgroundColor: '#FFF8F8',
-  },
-  dangerZoneHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
     gap: 8,
   },
-  dangerZoneTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+
+  editAlertText: {
+    flex: 1,
+    fontSize: 14,
     color: '#E30000',
+    fontWeight: '500',
   },
-  deleteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E30000',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    marginVertical: 8,
-    gap: 8,
-  },
-  deleteButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  field: {
-    marginBottom: 16,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  halfField: {
+
+  // Content scrollabile
+  scrollContent: {
     flex: 1,
   },
-  label: {
+
+  // Form
+  formContainer: {
+    padding: 16,
+  },
+
+  fieldContainer: {
+    marginBottom: 20,
+  },
+
+  // ✅ LABEL CON ICONA EDIT
+  fieldLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 6,
+  },
+
+  fieldLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#555',
-    marginBottom: 8,
-  },
-  value: {
-    fontSize: 16,
     color: '#333',
-    paddingVertical: 8,
   },
-  input: {
+
+  editIcon: {
+    opacity: 0.7,
+  },
+
+  fieldInput: {
     borderWidth: 1,
-    borderColor: '#DDD',
+    borderColor: '#E0E0E0',
     borderRadius: 8,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     fontSize: 16,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: 'white',
   },
-  textArea: {
+
+  // ✅ STILI MODALITÀ EDIT/READONLY
+  fieldInputEditing: {
+    borderColor: '#E30000',
+    borderWidth: 2,
+    backgroundColor: '#FFFBF5',
+  },
+
+  fieldInputReadonly: {
+    backgroundColor: '#F8F9FA',
+    borderColor: '#E9ECEF',
+  },
+
+  fieldInputMultiline: {
     height: 80,
     textAlignVertical: 'top',
   },
+
+  // ✅ SEZIONE DATA/ORA MIGLIORATA
+  dateTimeContainer: {
+    marginBottom: 20,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 16,
+  },
+
+  dateTimeRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+
+  dateTimeField: {
+    flex: 1,
+  },
+
+  // ✅ PROPORZIONI OTTIMIZZATE
+  dateFieldWide: {
+    flex: 2, // Data prende il doppio dello spazio
+  },
+
+  timeFieldNarrow: {
+    flex: 1, // Ore prendono spazio normale
+  },
+
+  dateTimeInput: {
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+
+  // Level Picker MIGLIORATO
   levelContainer: {
     flexDirection: 'row',
     gap: 8,
   },
+
   levelButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    minWidth: 60,
-    alignItems: 'center',
-  },
-  levelButtonText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  levelBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  levelText: {
-    fontSize: 12,
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  configButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#F8F9FA',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E0E0E0',
-  },
-  configButtonContent: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  configButtonTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  configButtonSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
-  },
-  bottomSpacer: {
-    height: 100,
-  },
-  actionButtons: {
-    padding: 16,
     backgroundColor: 'white',
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
+    gap: 4,
   },
-  editingButtons: {
-    flexDirection: 'row',
+
+  levelButtonActive: {
+    backgroundColor: '#E30000',
+    borderColor: '#E30000',
+  },
+
+  levelButtonDisabled: {
+    opacity: 0.6,
+  },
+
+  // ✅ STILE EDIT MODE PER LEVEL
+  levelButtonEditing: {
+    borderWidth: 2,
+    borderColor: '#FFA500',
+  },
+
+  levelButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+  },
+
+  levelButtonTextActive: {
+    color: 'white',
+  },
+
+  // Action Buttons
+  actionContainer: {
+    padding: 16,
     gap: 12,
   },
-  button: {
-    flex: 1,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  editButton: {
-    backgroundColor: '#E30000',
-  },
-  editButtonContent: {
+
+  saveButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-  },
-  editButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  saveButton: {
+    justifyContent: 'center',
     backgroundColor: '#28A745',
+    paddingVertical: 16,
+    borderRadius: 8,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
+
   saveButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
   },
-  cancelButton: {
-    backgroundColor: '#F8F9FA',
-    borderWidth: 1,
-    borderColor: '#DDD',
+
+  teamButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#007BFF',
+    paddingVertical: 16,
+    borderRadius: 8,
+    gap: 8,
   },
-  cancelButtonText: {
-    color: '#666',
+
+  teamButtonText: {
+    color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DC3545',
+    paddingVertical: 16,
+    borderRadius: 8,
+    gap: 8,
+  },
+
+  deleteButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+
+  // Info Section
+  infoContainer: {
+    margin: 16,
+    padding: 16,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: 4,
+  },
+
+  infoLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+
+  infoValue: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+    flex: 1,
+    textAlign: 'right',
   },
 });
 

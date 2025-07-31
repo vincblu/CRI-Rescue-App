@@ -4,11 +4,11 @@
     "slug": "CRI-Rescue-App",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/logo_cri.jpg",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/logo_cri.jpg",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
